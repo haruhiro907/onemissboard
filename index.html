@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<title>9路盤 ONE MISS Board | 囲碁 初心者 質問・棋譜共有・ミス検討掲示板</title>
+<meta name="description" content="囲碁9路盤のミス手を共有・検討できる掲示板。初心者・級位者大歓迎。SGFで棋譜を投稿してアドバイスをもらおう。9路盤専用の囲碁 初心者 質問・検討コミュニティ。">
+<meta name="keywords" content="囲碁,9路盤,初心者,質問,検討,棋譜,ミス,アドバイス,級位者,SGF,go,baduk,kifu,9x9">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://igo-9roban-onemiss.netlify.app/">
+
+<meta property="og:title" content="9路盤 ONE MISS Board | 囲碁 初心者 質問・棋譜共有">
+<meta property="og:description" content="囲碁9路盤のミス手を共有・検討できる掲示板。初心者・級位者大歓迎！SGFで棋譜を投稿してアドバイスをもらおう。">
+<meta property="og:url" content="https://igo-9roban-onemiss.netlify.app/">
+<meta property="og:image" content="https://igo-9roban-onemiss.netlify.app/2c453f6b08445aaebf64e6527c9fca41_t.jpeg">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+
+<style>
+    :root {
+        --board-img: url('2c453f6b08445aaebf64e6527c9fca41_t.jpeg');
+        --accent-color: #d4af37;
+        --board-base: #deb887;
+        --bg-dark: #1e1e1e;
+    }
+    body { margin:0; background: var(--bg-dark); font-family: sans-serif; color: #fff; line-height: 1.5; }
+    header { background: #111; padding: 12px 15px; text-align: center; border-bottom: 2px solid var(--accent-color); }
+    header h1 { margin: 0 0 6px; font-size: 20px; color: var(--accent-color); }
+
+    /* 言語バナー */
+    #lang-banner {
+        display: inline-flex; align-items: center; gap: 4px;
+        background: rgba(255,255,255,0.06); border: 1px solid #444;
+        border-radius: 20px; padding: 3px 10px; font-size: 11px; color: #aaa;
+    }
+    .lang-btn {
+        background: none; border: none; color: #aaa; cursor: pointer;
+        font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 10px;
+        transition: background 0.2s, color 0.2s;
+    }
+    .lang-btn.active { background: var(--accent-color); color: #000; }
+
+    /* トースト */
+    #toast {
+        position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(80px);
+        background: #333; color: #fff; padding: 12px 24px; border-radius: 24px;
+        font-size: 14px; z-index: 9999; transition: transform 0.3s ease, opacity 0.3s ease;
+        opacity: 0; pointer-events: none; white-space: nowrap; border: 1px solid #555;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+    #toast.toast-success { border-color: #4ae26c; color: #4ae26c; }
+    #toast.toast-error   { border-color: #e24a4a; color: #e24a4a; }
+
+    .hero-banner { background: rgba(212,175,55,0.1); border: 1px solid var(--accent-color); padding: 15px; border-radius: 8px; text-align: center; margin-bottom: 15px; font-weight: bold; color: var(--accent-color); font-size: 14px; }
+    .container { max-width:500px; margin:auto; padding:15px; background: rgba(255,255,255,0.05); min-height:100vh; }
+    .nav { display: flex; gap: 5px; margin-bottom: 20px; }
+    .nav button { flex:1; padding:10px; border:1px solid #444; border-radius:8px; background:transparent; color:#ccc; cursor:pointer; }
+    .nav button.active { background: var(--accent-color); color:#000; font-weight:bold; }
+
+    .filter-bar { background: #222; padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 13px; }
+    .filter-group { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
+    .filter-btn { background: #333; color: #fff; border: 1px solid #555; padding: 5px 8px; border-radius: 4px; cursor: pointer; }
+    .filter-btn.active { background: var(--accent-color); color: #000; border-color: var(--accent-color); }
+
+    .board { display: grid; grid-template-columns: 25px repeat(9, 1fr); width: 100%; aspect-ratio: 1/1; margin: 10px auto;
+        background-color: var(--board-base);
+        background-image: linear-gradient(rgba(222,184,135,0.6), rgba(222,184,135,0.6)), var(--board-img);
+        background-size: cover; border: 3px solid #222; }
+    .cell { position: relative; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .cell::before { content:""; position:absolute; width:1.5px; height:100%; background:rgba(0,0,0,0.7); left:50%; }
+    .cell::after  { content:""; position:absolute; width:100%; height:1.5px; background:rgba(0,0,0,0.7); top:50%; }
+    .row-0::before { height:50%; top:50%; } .row-8::before { height:50%; top:0; }
+    .col-0::after  { width:50%; left:50%; } .col-8::after  { width:50%; left:0; }
+    .hoshi { width:8px; height:8px; background:#000; border-radius:50%; position:absolute; }
+    .coord { font-size:11px; color:#444; display:flex; align-items:center; justify-content:center; }
+    .stone { width:94%; height:94%; border-radius:50%; z-index:10; position:relative; }
+    .black { background: radial-gradient(circle at 35% 35%, #555 0%, #000 70%); }
+    .white { background: radial-gradient(circle at 35% 35%, #fff 0%, #dcdcdc 80%); border: 1px solid #bbb; }
+    .last-move::after { content:""; position:absolute; width:10px; height:10px; border:2px solid red; border-radius:50%; left:50%; top:50%; transform:translate(-50%,-50%); z-index:12; }
+
+    .post-item { background: #333; padding: 20px; border-radius: 12px; margin-bottom: 30px; border: 1px solid transparent; transition: border-color 0.3s; }
+    .post-item.highlight { border-color: var(--accent-color); box-shadow: 0 0 0 2px rgba(212,175,55,0.3); }
+    .tag { display:inline-block; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:bold; margin-bottom:8px; }
+    .tag-検討, .tag-Review   { background:#4a90e2; }
+    .tag-質問, .tag-Question  { background:#e24a4a; }
+    .tag-雑談, .tag-Chat      { background:#4ae26c; color:#000; }
+
+    textarea, .cmt-input, .cat-select, .sgf-area { width:100%; background:#111; color:#fff; border:1px solid #444; border-radius:8px; padding:12px; box-sizing:border-box; margin-bottom:10px; }
+    textarea:focus, .cmt-input:focus { border-color: var(--accent-color); outline: none; }
+    .sgf-area { height:45px; font-size:12px; margin-top:10px; }
+    .btn { padding:12px; border:none; border-radius:8px; font-weight:bold; cursor:pointer; }
+    .btn-main { background: var(--accent-color); color:black; width:100%; }
+    .btn-step { background:#555; color:white; flex:1; font-size:18px; }
+    .cmt-item { background:#444; padding:8px 12px; border-radius:12px; margin-bottom:8px; font-size:13px; word-break: break-word; }
+
+    .step-controls { display:flex; align-items:center; gap:6px; margin-bottom:15px; flex-wrap: wrap; }
+    .step-jump { background:#444; color:#fff; border:none; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer; }
+
+    /* リアクションボタン */
+    .reaction-row { display: flex; gap: 8px; margin: 10px 0 6px; }
+    .reaction-btn {
+        display: flex; align-items: center; gap: 5px;
+        background: #2a2a2a; border: 1px solid #555; color: #ccc;
+        padding: 6px 12px; border-radius: 20px; font-size: 13px; cursor: pointer;
+        transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    .reaction-btn:hover:not(.reacted) { background: #3a3a3a; }
+    .reaction-btn.reacted { border-color: var(--accent-color); color: var(--accent-color); background: rgba(212,175,55,0.1); cursor: default; }
+    .reaction-count { font-weight: bold; min-width: 12px; }
+
+    #load-more-btn { display:block; width:100%; padding:12px; background:#2a2a2a; color:#aaa; border:1px solid #444; border-radius:8px; cursor:pointer; font-size:14px; margin-top:10px; }
+    #load-more-btn:hover { background:#333; }
+
+    .help-section { background:#2a2a2a; padding:15px; border-radius:10px; margin-bottom:20px; }
+    .help-section h2 { color:var(--accent-color); font-size:18px; margin-top:0; border-bottom:1px solid #444; padding-bottom:8px; }
+    .help-section h3 { font-size:15px; color:#ddd; margin:15px 0 5px; }
+    .help-section ul { padding-left:20px; margin:5px 0; }
+    .help-section li { margin-bottom:5px; font-size:14px; color:#ccc; }
+    .help-section strong { color:#fff; }
+
+    .field-error { color: #e24a4a; font-size: 12px; margin-top: -8px; margin-bottom: 8px; display: none; }
+    .field-error.show { display: block; }
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<header>
+    <h1>9路盤 ONE MISS Board</h1>
+    <div id="lang-banner">
+        <span>🌐</span>
+        <button class="lang-btn active" id="btn-ja" onclick="setLang('ja')">JA</button>
+        <span style="color:#555;">/</span>
+        <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+</header>
+
+<div class="container">
+    <div class="hero-banner" data-i18n="hero"></div>
+
+    <div class="nav">
+        <button id="tab-post" class="active" onclick="changeTab('post')" data-i18n="tab_post">投稿</button>
+        <button id="tab-list" onclick="changeTab('list')" data-i18n="tab_list">対局一覧</button>
+        <button id="tab-help" onclick="changeTab('help')" data-i18n="tab_help">使い方</button>
+    </div>
+
+    <div id="page-post">
+        <div style="font-size:13px; margin-bottom:5px; color:#aaa;" data-i18n="label_category">カテゴリ:</div>
+        <select id="post-category" class="cat-select">
+            <option value="検討" data-i18n-opt="cat_review">検討</option>
+            <option value="質問" data-i18n-opt="cat_question">質問</option>
+            <option value="雑談" data-i18n-opt="cat_chat">雑談</option>
+        </select>
+        <textarea id="msg" rows="3" data-i18n-ph="placeholder_msg"></textarea>
+        <div id="msg-error" class="field-error" data-i18n="err_msg">メッセージを入力してください</div>
+        <div id="board-main" class="board" role="grid" aria-label="9路盤"></div>
+        <div style="display:flex; gap:5px; align-items:flex-start;">
+            <textarea id="sgf-input" class="sgf-area" data-i18n-ph="placeholder_sgf"></textarea>
+            <button class="btn" style="background:#555; color:#fff; padding:12px 8px; font-size:12px; margin-top:10px;" onclick="importSGF()" data-i18n="btn_load">読込</button>
+        </div>
+        <div style="display:flex; gap:12px; margin-top:5px;">
+            <button class="btn" style="flex:1; background:#555; color:white;" onclick="undo()" data-i18n="btn_undo">戻す</button>
+            <button class="btn btn-main" style="flex:2;" id="save-btn" data-i18n="btn_post">投稿する</button>
+        </div>
+    </div>
+
+    <div id="page-list" style="display:none">
+        <div class="filter-bar">
+            <div class="filter-group">
+                <span data-i18n="filter_category">カテゴリ:</span>
+                <button class="filter-btn active" onclick="setFilter('cat','すべて',this)" data-i18n="filter_all">すべて</button>
+                <button class="filter-btn" onclick="setFilter('cat','検討',this)" data-i18n="cat_review">検討</button>
+                <button class="filter-btn" onclick="setFilter('cat','質問',this)" data-i18n="cat_question">質問</button>
+                <button class="filter-btn" onclick="setFilter('cat','雑談',this)" data-i18n="cat_chat">雑談</button>
+            </div>
+            <div class="filter-group">
+                <span data-i18n="filter_narrow">絞り込み:</span>
+                <button id="unanswered-btn" class="filter-btn" onclick="toggleUnanswered()" data-i18n="filter_unanswered">未回答のみ</button>
+            </div>
+            <div class="filter-group">
+                <span data-i18n="filter_sort">並び替え:</span>
+                <select onchange="setSort(this.value)" style="background:#333; color:#fff; border:1px solid #555; padding:5px; border-radius:4px;">
+                    <option value="new" data-i18n-opt="sort_new">新着順</option>
+                    <option value="comments" data-i18n-opt="sort_comments">コメント数順</option>
+                </select>
+            </div>
+        </div>
+        <div id="list-container" data-i18n="loading">読み込み中...</div>
+        <button id="load-more-btn" style="display:none;" onclick="loadMore()" data-i18n="btn_more">さらに読み込む</button>
+    </div>
+
+    <div id="page-help" style="display:none">
+        <div class="help-section">
+            <h2 data-i18n="help_about_title">当サイトについて</h2>
+            <p style="font-size:14px; color:#ccc;" data-i18n="help_about_body">9路盤のミス手の共有・検討に特化した簡易掲示板です。初心者から級位者まで、気軽に相談できる場を目指しています。</p>
+        </div>
+        <div class="help-section">
+            <h2 data-i18n="help_basic_title">基本の操作</h2>
+            <h3 data-i18n="help_place_title">石を置く</h3>
+            <ul>
+                <li data-i18n="help_place_1">盤面の交点をタップすると石を置けます（黒白交互）。</li>
+                <li data-i18n="help_place_2">石を置くと音が鳴ります。</li>
+            </ul>
+            <h3 data-i18n="help_sgf_title">SGF読み込み</h3>
+            <ul>
+                <li data-i18n="help_sgf_1">盤面下のテキストエリアにSGFを貼り付け「読込」を押すと対局を再現できます。</li>
+            </ul>
+        </div>
+        <div class="help-section">
+            <h2 data-i18n="help_post_title">投稿とカテゴリ</h2>
+            <h3 data-i18n="help_how_title">投稿する方法</h3>
+            <ul>
+                <li data-i18n="help_how_1">検討したい局面まで石を進め、メッセージを書いて「投稿する」を押します。</li>
+                <li data-i18n="help_how_2">メッセージの入力は必須です。</li>
+            </ul>
+            <h3 data-i18n="help_cat_title">カテゴリの使い分け</h3>
+            <ul>
+                <li data-i18n="help_cat_1"><strong>検討：</strong>自分の対局を振り返り意見を聞きたい時。</li>
+                <li data-i18n="help_cat_2"><strong>質問：</strong>「この手はどう打てばよかった？」など具体的な疑問。</li>
+                <li data-i18n="help_cat_3"><strong>雑談：</strong>囲碁に関する何気ない話題や交流。</li>
+            </ul>
+        </div>
+        <div class="help-section">
+            <h2 data-i18n="help_feat_title">便利な機能</h2>
+            <h3 data-i18n="help_share_title">共有リンク</h3>
+            <ul>
+                <li data-i18n="help_share_1">「🔗 共有リンク」ボタンでその投稿への直接URLをコピーできます。</li>
+            </ul>
+            <h3 data-i18n="help_replay_title">棋譜再生</h3>
+            <ul>
+                <li data-i18n="help_replay_1">◀▶ボタンで1手ずつ進めたり戻したりできます。</li>
+                <li data-i18n="help_replay_2">「|◀」で最初、「▶|」で最終局面にジャンプできます。</li>
+            </ul>
+            <h3 data-i18n="help_react_title">リアクション</h3>
+            <ul>
+                <li data-i18n="help_react_1">👍 いいね・💡 参考になった ボタンで投稿に反応できます（1人1回）。</li>
+            </ul>
+        </div>
+        <div style="text-align:center; font-size:12px; color:#666; padding:20px;">
+            <span data-i18n="contact_label">管理人への連絡：</span><a id="contact-link" href="#" style="color:#888;"></a>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, query, orderBy, limit, startAfter,
+             getDocs, onSnapshot, updateDoc, doc, arrayUnion, getDoc, increment }
+        from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyCM4C1GzADf1t9MCcnoti8QfxdADr9_rkk",
+        authDomain: "igo-board.firebaseapp.com",
+        projectId: "igo-board",
+        storageBucket: "igo-board.firebasestorage.app",
+        messagingSenderId: "782396576091",
+        appId: "1:782396576091:web:3e493620b1a071a31a4a7e"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    window.db = db;
+    window.addDoc = addDoc;
+    window.collection = collection;
+    window.updateDoc = updateDoc;
+    window.doc = doc;
+    window.arrayUnion = arrayUnion;
+    window.increment = increment;
+
+    const PAGE_SIZE = 10;
+    let allPosts = [];
+    let lastVisible = null;
+    let hasMore = false;
+    let currentFilter = { cat: 'すべて', unanswered: false, sort: 'new' };
+    let isLoading = false;
+
+    const baseQuery = query(collection(db, "posts"), orderBy("createdAt", "desc"), limit(PAGE_SIZE));
+    onSnapshot(baseQuery, (snapshot) => {
+        allPosts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        lastVisible = snapshot.docs[snapshot.docs.length - 1] || null;
+        hasMore = snapshot.docs.length === PAGE_SIZE;
+        document.getElementById("load-more-btn").style.display = hasMore ? "block" : "none";
+        applyFilters();
+    });
+
+    window.loadMore = async () => {
+        if (!lastVisible || isLoading) return;
+        isLoading = true;
+        const nextQ = query(collection(db, "posts"), orderBy("createdAt", "desc"), startAfter(lastVisible), limit(PAGE_SIZE));
+        const snapshot = await getDocs(nextQ);
+        const newPosts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        allPosts = [...allPosts, ...newPosts];
+        lastVisible = snapshot.docs[snapshot.docs.length - 1] || lastVisible;
+        hasMore = snapshot.docs.length === PAGE_SIZE;
+        document.getElementById("load-more-btn").style.display = hasMore ? "block" : "none";
+        applyFilters(true);
+        isLoading = false;
+    };
+
+    window.applyFilters = (append = false) => {
+        let filtered = [...allPosts];
+        if (currentFilter.cat !== 'すべて') filtered = filtered.filter(p => p.category === currentFilter.cat);
+        if (currentFilter.unanswered) filtered = filtered.filter(p => !p.comments || p.comments.length === 0);
+        if (currentFilter.sort === 'comments') {
+            filtered.sort((a, b) => (b.comments?.length || 0) - (a.comments?.length || 0));
+        } else {
+            filtered.sort((a, b) => b.createdAt - a.createdAt);
+        }
+        renderList(filtered, append);
+    };
+
+    window.setFilter = (type, val, btn) => {
+        currentFilter[type] = val;
+        btn.parentNode.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        applyFilters();
+    };
+
+    window.toggleUnanswered = () => {
+        currentFilter.unanswered = !currentFilter.unanswered;
+        document.getElementById('unanswered-btn').classList.toggle('active');
+        applyFilters();
+    };
+
+    window.setSort = (val) => { currentFilter.sort = val; applyFilters(); };
+
+    // リアクション送信（バグ修正済み：二重カウント防止）
+    window.sendReaction = async (postId, type) => {
+        const key = `reacted_${type}_${postId}`;
+        if (localStorage.getItem(key)) { 
+            showToast(t('already_reacted'), 'error'); 
+            return; 
+        }
+
+        const btn = document.getElementById(`${type}-btn-${postId}`);
+        if (btn) btn.style.pointerEvents = 'none'; // 重複クリック防止
+
+        try {
+            await updateDoc(doc(db, "posts", postId), { [type]: increment(1) });
+            localStorage.setItem(key, "1");
+            
+            if (btn) btn.classList.add("reacted");
+            showToast(t('thanks_reaction'), 'success');
+            // 数値は onSnapshot の再描画により自動更新されるため手動加算は不要
+        } catch(e) { 
+            if (btn) btn.style.pointerEvents = 'auto';
+            showToast(t('error_generic'), 'error'); 
+        }
+    };
+
+    // 直接リンク対応
+    window.handleDirectLink = async () => {
+        const params = new URLSearchParams(location.search);
+        const targetId = params.get("id");
+        if (!targetId) return;
+        changeTab('list');
+        const scrollToPost = () => {
+            const el = document.getElementById("item-" + targetId);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('highlight');
+                setTimeout(() => el.classList.remove('highlight'), 3000);
+                return true;
+            }
+            return false;
+        };
+        await new Promise(r => setTimeout(r, 800));
+        if (!scrollToPost()) {
+            try {
+                const snap = await getDoc(doc(db, "posts", targetId));
+                if (snap.exists()) {
+                    const p = { id: snap.id, ...snap.data() };
+                    if (!allPosts.find(x => x.id === p.id)) { allPosts.unshift(p); applyFilters(); }
+                    await new Promise(r => setTimeout(r, 100));
+                    scrollToPost();
+                } else { showToast(t('post_not_found'), 'error'); }
+            } catch(e) { showToast(t('error_generic'), 'error'); }
+        }
+    };
+</script>
+
+<script>
+// ===== i18n =====
+let currentLang = 'ja';
+
+const TR = {
+    ja: {
+        hero:              '【初心者・級位者歓迎】<br>棋譜や盤面を投稿してアドバイスをもらおう',
+        tab_post:          '投稿',
+        tab_list:          '対局一覧',
+        tab_help:          '使い方',
+        label_category:    'カテゴリ:',
+        cat_review:        '検討',
+        cat_question:      '質問',
+        cat_chat:          '雑談',
+        placeholder_msg:   '検討内容や質問を記入してください（必須）',
+        placeholder_sgf:   'SGFをここに貼り付け...',
+        err_msg:           'メッセージを入力してください',
+        btn_load:          '読込',
+        btn_undo:          '戻す',
+        btn_post:          '投稿する',
+        filter_category:   'カテゴリ:',
+        filter_all:        'すべて',
+        filter_narrow:     '絞り込み:',
+        filter_unanswered: '未回答のみ',
+        filter_sort:       '並び替え:',
+        sort_new:          '新着順',
+        sort_comments:     'コメント数順',
+        loading:           '読み込み中...',
+        btn_more:          'さらに読み込む',
+        contact_label:     '管理人への連絡：',
+        no_posts:          '条件に合う投稿がありません',
+        share_btn:         '🔗 共有リンク',
+        comment_count:     n => `コメント ${n}件`,
+        comment_ph:        'アドバイスを入力...',
+        send_btn:          '送信',
+        like_btn:          '👍 いいね',
+        helpful_btn:       '💡 参考になった',
+        copied:            '共有リンクをコピーしました！',
+        posted:            '投稿しました！',
+        commented:         'コメントを送信しました',
+        no_stone:          '石を少なくとも1手置いてください',
+        forbidden:         '着手禁止点です（コウまたは自殺手）',
+        sgf_error:         'SGFの読み取りに失敗しました',
+        save_error:        '保存エラーが発生しました',
+        send_error:        '送信に失敗しました',
+        already_reacted:   'すでに反応済みです',
+        thanks_reaction:   'ありがとう！',
+        error_generic:     'エラーが発生しました',
+        post_not_found:    '指定された投稿が見つかりませんでした',
+        comment_empty:     'コメントを入力してください',
+        help_about_title:  '当サイトについて',
+        help_about_body:   '9路盤のミス手の共有・検討に特化した簡易掲示板です。初心者から級位者まで、気軽に相談できる場を目指しています。',
+        help_basic_title:  '基本の操作',
+        help_place_title:  '石を置く',
+        help_place_1:      '盤面の交点をタップすると石を置けます（黒白交互）。',
+        help_place_2:      '石を置くと音が鳴ります。',
+        help_sgf_title:    'SGF読み込み',
+        help_sgf_1:        '盤面下のテキストエリアにSGFを貼り付け「読込」を押すと対局を再現できます。',
+        help_post_title:   '投稿とカテゴリ',
+        help_how_title:    '投稿する方法',
+        help_how_1:        '検討したい局面まで石を進め、メッセージを書いて「投稿する」を押します。',
+        help_how_2:        'メッセージの入力は必須です。',
+        help_cat_title:    'カテゴリの使い分け',
+        help_cat_1:        '検討：自分の対局を振り返り意見を聞きたい時。',
+        help_cat_2:        '質問：「この手はどう打てばよかった？」など具体的な疑問。',
+        help_cat_3:        '雑談：囲碁に関する何気ない話題や交流。',
+        help_feat_title:   '便利な機能',
+        help_share_title:  '共有リンク',
+        help_share_1:      '「🔗 共有リンク」ボタンでその投稿への直接URLをコピーできます。',
+        help_replay_title: '棋譜再生',
+        help_replay_1:     '◀▶ボタンで1手ずつ進めたり戻したりできます。',
+        help_replay_2:     '「|◀」で最初、「▶|」で最終局面にジャンプできます。',
+        help_react_title:  'リアクション',
+        help_react_1:      '👍 いいね・💡 参考になった ボタンで投稿に反応できます（1人1回）。',
+    },
+    en: {
+        hero:              '【Beginners & kyu players welcome】<br>Post your game and get advice!',
+        tab_post:          'Post',
+        tab_list:          'Games',
+        tab_help:          'How to use',
+        label_category:    'Category:',
+        cat_review:        'Review',
+        cat_question:      'Question',
+        cat_chat:          'Chat',
+        placeholder_msg:   'Describe your question or position (required)',
+        placeholder_sgf:   'Paste SGF here...',
+        err_msg:           'Please enter a message',
+        btn_load:          'Load',
+        btn_undo:          'Undo',
+        btn_post:          'Post',
+        filter_category:   'Category:',
+        filter_all:        'All',
+        filter_narrow:     'Filter:',
+        filter_unanswered: 'Unanswered only',
+        filter_sort:       'Sort:',
+        sort_new:          'Newest',
+        sort_comments:     'Most comments',
+        loading:           'Loading...',
+        btn_more:          'Load more',
+        contact_label:     'Contact admin: ',
+        no_posts:          'No posts match your filter',
+        share_btn:         '🔗 Share',
+        comment_count:     n => `${n} comment${n !== 1 ? 's' : ''}`,
+        comment_ph:        'Leave advice...',
+        send_btn:          'Send',
+        like_btn:          '👍 Like',
+        helpful_btn:       '💡 Helpful',
+        copied:            'Link copied!',
+        posted:            'Posted!',
+        commented:         'Comment sent!',
+        no_stone:          'Please place at least one stone',
+        forbidden:         'Illegal move (ko or suicide)',
+        sgf_error:         'Failed to parse SGF',
+        save_error:        'Failed to save post',
+        send_error:        'Failed to send comment',
+        already_reacted:   'Already reacted!',
+        thanks_reaction:   'Thanks!',
+        error_generic:     'An error occurred',
+        post_not_found:    'Post not found',
+        comment_empty:     'Please enter a comment',
+        help_about_title:  'About this site',
+        help_about_body:   'A bulletin board for sharing and reviewing mistakes on the 9×9 Go board. Beginners and kyu players welcome!',
+        help_basic_title:  'Basic controls',
+        help_place_title:  'Placing stones',
+        help_place_1:      'Tap an intersection to place a stone (alternating black/white).',
+        help_place_2:      'A click sound plays when you place a stone.',
+        help_sgf_title:    'SGF import',
+        help_sgf_1:        'Paste an SGF into the text area below the board and press Load to replay the game.',
+        help_post_title:   'Posting & categories',
+        help_how_title:    'How to post',
+        help_how_1:        'Set up the position you want to discuss, write a message, then press Post.',
+        help_how_2:        'A message is required.',
+        help_cat_title:    'Category guide',
+        help_cat_1:        'Review: For feedback on your own game.',
+        help_cat_2:        'Question: Specific questions like "what should I have played here?"',
+        help_cat_3:        'Chat: Casual Go-related conversation.',
+        help_feat_title:   'Features',
+        help_share_title:  'Share link',
+        help_share_1:      'Press 🔗 Share to copy a direct URL to any post.',
+        help_replay_title: 'Game replay',
+        help_replay_1:     'Use ◀▶ to step through moves one by one.',
+        help_replay_2:     '|◀ jumps to the start; ▶| jumps to the final position.',
+        help_react_title:  'Reactions',
+        help_react_1:      'Use 👍 Like and 💡 Helpful to react to posts (once per user).',
+    }
+};
+
+function t(key) {
+    const val = TR[currentLang]?.[key] ?? TR['ja'][key] ?? key;
+    return typeof val === 'function' ? val : val;
+}
+
+function setLang(lang) {
+    currentLang = lang;
+    document.getElementById('btn-ja').classList.toggle('active', lang === 'ja');
+    document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const v = TR[lang][el.getAttribute('data-i18n')];
+        if (v !== undefined && typeof v !== 'function') el.innerHTML = v;
+    });
+    document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+        const v = TR[lang][el.getAttribute('data-i18n-ph')];
+        if (v !== undefined) el.placeholder = v;
+    });
+    document.querySelectorAll('[data-i18n-opt]').forEach(el => {
+        const v = TR[lang][el.getAttribute('data-i18n-opt')];
+        if (v !== undefined) el.textContent = v;
+    });
+
+    // JS生成済み投稿アイテムの文言も更新
+    document.querySelectorAll('.post-item').forEach(item => {
+        const pid = item.id.replace('item-', '');
+        const likeLabel = item.querySelector(`#likes-btn-${pid} .reaction-label`);
+        const helpLabel = item.querySelector(`#helpful-btn-${pid} .reaction-label`);
+        const input = document.getElementById(`in-${pid}`);
+        const sendBtn = item.querySelector('.cmt-send-btn');
+        const shareBtn = item.querySelector('.share-link-btn');
+        if (likeLabel) likeLabel.textContent = t('like_btn');
+        if (helpLabel) helpLabel.textContent = t('helpful_btn');
+        if (input) input.placeholder = t('comment_ph');
+        if (sendBtn) sendBtn.textContent = t('send_btn');
+        if (shareBtn) shareBtn.textContent = t('share_btn');
+    });
+}
+window.setLang = setLang;
+
+document.addEventListener('DOMContentLoaded', () => setLang('ja'));
+
+// ===== 石の音 =====
+let audioCtx = null;
+function playStoneSound() {
+    try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const bufferSize = audioCtx.sampleRate * 0.06;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 6);
+        }
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = "bandpass";
+        filter.frequency.value = 600;
+        filter.Q.value = 1.2;
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(1.5, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.06);
+        source.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        source.start();
+    } catch(e) {}
+}
+
+// ===== トースト =====
+let toastTimer = null;
+function showToast(msg, type = "normal") {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.className = "show" + (type === "success" ? " toast-success" : type === "error" ? " toast-error" : "");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = ""; }, 3000);
+}
+
+// ===== 盤面ロジック =====
+let moves = [];
+let boardState = Array(81).fill(null);
+let boardHistory = [];
+const letters = ["A","B","C","D","E","F","G","H","J"];
+let viewerStates = {};
+
+function getAdj(i) {
+    let res = [], x = i % 9, y = Math.floor(i / 9);
+    if(x > 0) res.push(i-1); if(x < 8) res.push(i+1);
+    if(y > 0) res.push(i-9); if(y < 8) res.push(i+9);
+    return res;
+}
+function getGroup(i, state) {
+    let color = state[i], group = new Set([i]), stack = [i], liberties = new Set();
+    while(stack.length) {
+        let curr = stack.pop();
+        getAdj(curr).forEach(adj => {
+            if(state[adj] === null) liberties.add(adj);
+            else if(state[adj] === color && !group.has(adj)) { group.add(adj); stack.push(adj); }
+        });
+    }
+    return { group: Array.from(group), liberties: liberties.size };
+}
+function checkRules(idx, color, state, history = []) {
+    let nextState = [...state];
+    nextState[idx] = color;
+    let opponent = color === "black" ? "white" : "black";
+    let capturedAny = false;
+    getAdj(idx).forEach(adj => {
+        if(nextState[adj] === opponent) {
+            let res = getGroup(adj, nextState);
+            if(res.liberties === 0) { res.group.forEach(g => nextState[g] = null); capturedAny = true; }
+        }
+    });
+    if(!capturedAny && getGroup(idx, nextState).liberties === 0) return null;
+    if(history.includes(nextState.join(","))) return null;
+    return nextState;
+}
+function currentColor() { return moves.length % 2 === 0 ? "black" : "white"; }
+
+function initBoard(targetId, state = null, _history = [], lastIdx = -1, isViewer = false) {
+    const el = document.getElementById(targetId); if(!el) return;
+    el.innerHTML = "";
+    el.appendChild(document.createElement("div"));
+    letters.forEach(l => { let d = document.createElement("div"); d.className = "coord"; d.textContent = l; el.appendChild(d); });
+    const current = state || boardState;
+    for(let y = 0; y < 9; y++) {
+        let d = document.createElement("div"); d.className = "coord"; d.textContent = y+1; el.appendChild(d);
+        for(let x = 0; x < 9; x++) {
+            let idx = y*9+x;
+            let cell = document.createElement("div");
+            cell.className = `cell row-${y} col-${x}`;
+            if(!isViewer) {
+                cell.setAttribute("role", "button");
+                cell.setAttribute("tabindex", "0");
+                cell.setAttribute("aria-label", letters[x] + (y+1));
+            }
+            if(x === 4 && y === 4) { let h = document.createElement("div"); h.className = "hoshi"; cell.appendChild(h); }
+            if(current[idx]) {
+                let s = document.createElement("div");
+                s.className = "stone " + current[idx];
+                if(idx === lastIdx) s.classList.add("last-move");
+                cell.appendChild(s);
+            }
+            if(!isViewer) {
+                cell.onclick = () => place(idx);
+                cell.onkeydown = (e) => { if(e.key === "Enter" || e.key === " ") place(idx); };
+            }
+            el.appendChild(cell);
+        }
+    }
+}
+
+function place(i) {
+    if(boardState[i]) return;
+    const color = currentColor();
+    const next = checkRules(i, color, boardState, boardHistory);
+    if(!next) { showToast(t('forbidden'), 'error'); return; }
+    playStoneSound();
+    boardHistory.push(boardState.join(","));
+    boardState = next;
+    moves.push({ idx: i, color });
+    initBoard("board-main");
+}
+
+function undo() {
+    if(moves.length === 0) return;
+    playStoneSound();
+    moves.pop(); boardHistory.pop();
+    boardState = Array(81).fill(null);
+    let mBackup = [...moves]; moves = []; boardHistory = [];
+    mBackup.forEach(m => {
+        const c = currentColor();
+        const next = checkRules(m.idx, c, boardState, boardHistory);
+        if(next) { boardHistory.push(boardState.join(",")); boardState = next; moves.push(m); }
+    });
+    initBoard("board-main");
+}
+
+function importSGF() {
+    const sgf = document.getElementById("sgf-input").value;
+    const mm = sgf.match(/([BW])\[([a-i]{2})\]/g);
+    if(!mm) { showToast(t('sgf_error'), 'error'); return; }
+    playStoneSound();
+    boardState = Array(81).fill(null); moves = []; boardHistory = [];
+    mm.forEach(m => {
+        const color = m[0] === 'B' ? 'black' : 'white';
+        const x = m.charCodeAt(2) - 97, y = m.charCodeAt(3) - 97;
+        const next = checkRules(y*9+x, color, boardState, boardHistory);
+        if(next) { boardHistory.push(boardState.join(",")); boardState = next; moves.push({ idx: y*9+x, color }); }
+    });
+    initBoard("board-main");
+}
+
+// ===== 投稿 =====
+document.getElementById("save-btn").onclick = async () => {
+    const txt = document.getElementById("msg").value.trim();
+    const errEl = document.getElementById("msg-error");
+    if(!txt) { errEl.classList.add("show"); return; }
+    errEl.classList.remove("show");
+    if(moves.length === 0) { showToast(t('no_stone'), 'error'); return; }
+    const cat = document.getElementById("post-category").value;
+    document.getElementById("save-btn").disabled = true;
+    try {
+        await window.addDoc(window.collection(window.db, "posts"), {
+            text: txt, category: cat, history: moves,
+            createdAt: Date.now(), comments: [],
+            likes: 0, helpful: 0   // リアクション初期値
+        });
+        showToast(t('posted'), 'success');
+        document.getElementById("msg").value = "";
+        document.getElementById("sgf-input").value = "";
+        boardState = Array(81).fill(null); moves = []; boardHistory = [];
+        initBoard("board-main");
+        changeTab('list');
+    } catch(e) { showToast(t('save_error'), 'error'); }
+    document.getElementById("save-btn").disabled = false;
+};
+
+// ===== コメント =====
+window.sendComment = async (postId) => {
+    const input = document.getElementById("in-" + postId);
+    const val = input.value.trim();
+    if(!val) { showToast(t('comment_empty'), 'error'); return; }
+    try {
+        await window.updateDoc(window.doc(window.db, "posts", postId), { comments: window.arrayUnion(val) });
+        input.value = "";
+        showToast(t('commented'), 'success');
+    } catch(e) { showToast(t('send_error'), 'error'); }
+};
+
+// ===== 共有リンク =====
+window.copyLink = (postId) => {
+    const url = location.origin + location.pathname + "?id=" + postId;
+    navigator.clipboard.writeText(url).then(() => showToast(t('copied'), 'success'));
+};
+
+// ===== 棋譜ビューア =====
+window.step = (postId, dir, history, jumpTo = null) => {
+    if(viewerStates[postId] === undefined) viewerStates[postId] = history.length;
+    const before = viewerStates[postId];
+    viewerStates[postId] = jumpTo !== null ? jumpTo : viewerStates[postId] + dir;
+    viewerStates[postId] = Math.max(0, Math.min(history.length, viewerStates[postId]));
+    const after = viewerStates[postId];
+    if(after !== before && after > 0 && dir !== 0) playStoneSound();
+    let tempBoard = Array(81).fill(null), lastIdx = -1;
+    for(let i = 0; i < after; i++) {
+        const m = history[i];
+        const next = checkRules(m.idx, m.color, tempBoard);
+        if(next) { tempBoard = next; lastIdx = m.idx; }
+    }
+    initBoard("b-" + postId, tempBoard, history, lastIdx, true);
+    document.getElementById("step-label-" + postId).textContent = after + " / " + history.length;
+};
+
+// ===== 一覧レンダリング =====
+function renderList(posts, append = false) {
+    const container = document.getElementById("list-container");
+    if(!append) container.innerHTML = "";
+
+    if(posts.length === 0 && !append) {
+        const msg = document.createElement("div");
+        msg.style.cssText = "text-align:center; padding:20px; color:#aaa;";
+        msg.textContent = t('no_posts');
+        container.appendChild(msg);
+        return;
+    }
+
+    const existingIds = new Set([...container.querySelectorAll(".post-item")].map(el => el.id.replace("item-", "")));
+
+    posts.forEach(p => {
+        if(existingIds.has(p.id)) return;
+
+        const item = document.createElement("div");
+        item.className = "post-item";
+        item.id = "item-" + p.id;
+
+        // ヘッダー
+        const header = document.createElement("div");
+        header.style.cssText = "display:flex; justify-content:space-between; align-items:flex-start;";
+        const tagWrap = document.createElement("div");
+        const tag = document.createElement("span");
+        tag.className = "tag tag-" + (p.category || "検討");
+        tag.textContent = p.category || "検討";
+        const idLabel = document.createElement("div");
+        idLabel.style.cssText = "color:var(--accent-color); font-weight:bold; font-size:11px;";
+        idLabel.textContent = "# " + p.id.slice(0, 5);
+        tagWrap.appendChild(tag); tagWrap.appendChild(idLabel);
+        const shareBtn = document.createElement("button");
+        shareBtn.className = "btn share-link-btn";
+        shareBtn.style.cssText = "padding:4px 8px; font-size:11px; background:#444; color:#fff;";
+        shareBtn.textContent = t('share_btn');
+        shareBtn.onclick = () => copyLink(p.id);
+        header.appendChild(tagWrap); header.appendChild(shareBtn);
+        item.appendChild(header);
+
+        // 本文
+        const textDiv = document.createElement("div");
+        textDiv.style.cssText = "margin:10px 0; font-size:15px;";
+        textDiv.textContent = p.text;
+        item.appendChild(textDiv);
+
+        // 盤面
+        const boardDiv = document.createElement("div");
+        boardDiv.id = "b-" + p.id;
+        boardDiv.className = "board";
+        boardDiv.setAttribute("role", "img");
+        item.appendChild(boardDiv);
+
+        // ステップコントロール
+        const stepDiv = document.createElement("div");
+        stepDiv.className = "step-controls";
+        const mkStepBtn = (cls, text, fn, lbl) => {
+            const b = document.createElement("button");
+            b.className = cls; b.textContent = text;
+            b.setAttribute("aria-label", lbl);
+            b.onclick = fn; return b;
+        };
+        const stepLabel = document.createElement("span");
+        stepLabel.id = "step-label-" + p.id;
+        stepLabel.style.cssText = "flex:1; text-align:center; font-size:14px;";
+        stepLabel.textContent = p.history.length + " / " + p.history.length;
+        [
+            mkStepBtn("step-jump", "|◀", () => step(p.id, 0, p.history, 0), "最初"),
+            mkStepBtn("btn btn-step", "◀",  () => step(p.id, -1, p.history), "1手戻る"),
+            stepLabel,
+            mkStepBtn("btn btn-step", "▶",  () => step(p.id, 1, p.history), "1手進む"),
+            mkStepBtn("step-jump", "▶|", () => step(p.id, 0, p.history, p.history.length), "最後"),
+        ].forEach(el => stepDiv.appendChild(el));
+        item.appendChild(stepDiv);
+
+        // ===== リアクションボタン =====
+        const reactionRow = document.createElement("div");
+        reactionRow.className = "reaction-row";
+
+        const mkReactionBtn = (type, emoji_label) => {
+            const key = `reacted_${type}_${p.id}`;
+            const done = !!localStorage.getItem(key);
+            const btn = document.createElement("button");
+            btn.className = "reaction-btn" + (done ? " reacted" : "");
+            btn.id = `${type}-btn-${p.id}`;
+            const lbl = document.createElement("span");
+            lbl.className = "reaction-label";
+            lbl.textContent = t(emoji_label);
+            const cnt = document.createElement("span");
+            cnt.className = "reaction-count";
+            cnt.id = `${type}-count-${p.id}`;
+            cnt.textContent = p[type] || 0;
+            btn.appendChild(lbl); btn.appendChild(cnt);
+            if(!done) btn.onclick = () => window.sendReaction(p.id, type);
+            return btn;
+        };
+        reactionRow.appendChild(mkReactionBtn('likes', 'like_btn'));
+        reactionRow.appendChild(mkReactionBtn('helpful', 'helpful_btn'));
+        item.appendChild(reactionRow);
+
+        // コメント件数
+        const cmtCount = document.createElement("div");
+        cmtCount.style.cssText = "font-size:12px; margin: 6px 0 10px; color:var(--accent-color);";
+        const ccFn = TR[currentLang].comment_count;
+        cmtCount.textContent = typeof ccFn === 'function' ? ccFn(p.comments?.length || 0) : '';
+        item.appendChild(cmtCount);
+
+        // コメント一覧
+        const cmtList = document.createElement("div");
+        cmtList.id = "clist-" + p.id;
+        (p.comments || []).forEach(c => {
+            const ci = document.createElement("div");
+            ci.className = "cmt-item";
+            ci.textContent = c;
+            cmtList.appendChild(ci);
+        });
+        item.appendChild(cmtList);
+
+        // コメント入力
+        const cmtRow = document.createElement("div");
+        cmtRow.style.cssText = "display:flex; gap:5px; margin-top:10px;";
+        const cmtInput = document.createElement("input");
+        cmtInput.id = "in-" + p.id;
+        cmtInput.className = "cmt-input";
+        cmtInput.placeholder = t('comment_ph');
+        cmtInput.style.marginBottom = "0";
+        cmtInput.addEventListener("keydown", e => { if(e.key === "Enter") sendComment(p.id); });
+        const cmtBtn = document.createElement("button");
+        cmtBtn.className = "btn cmt-send-btn";
+        cmtBtn.style.cssText = "background:var(--accent-color); padding:8px 15px;";
+        cmtBtn.textContent = t('send_btn');
+        cmtBtn.onclick = () => sendComment(p.id);
+        cmtRow.appendChild(cmtInput); cmtRow.appendChild(cmtBtn);
+        item.appendChild(cmtRow);
+
+        container.appendChild(item);
+        setTimeout(() => step(p.id, 0, p.history, p.history.length), 10);
+    });
+}
+
+// ===== タブ切り替え =====
+function changeTab(tab) {
+    ["post","list","help"].forEach(t => {
+        document.getElementById("page-" + t).style.display = (t === tab ? "block" : "none");
+        document.getElementById("tab-" + t).className = (t === tab ? "active" : "");
+    });
+}
+window.changeTab = changeTab;
+
+// ===== メールアドレス スパム対策 =====
+(function() {
+    const u = "nagasudai88", d = "gmail.com";
+    const a = document.getElementById("contact-link");
+    a.href = "mailto:" + u + "@" + d;
+    a.textContent = u + "@" + d;
+})();
+
+initBoard("board-main");
+
+window.addEventListener("load", () => {
+    if(location.search.includes("id=")) {
+        setTimeout(() => window.handleDirectLink && window.handleDirectLink(), 500);
+    }
+});
+</script>
+</body>
+</html>

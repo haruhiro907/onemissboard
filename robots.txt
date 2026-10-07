@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://igo-9roban-onemiss.netlify.app/sitemap.xml

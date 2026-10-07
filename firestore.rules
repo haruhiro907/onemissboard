@@ -1,0 +1,68 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /posts/{postId} {
+      allow read: if true;
+
+      allow create: if isValidNewPost();
+      allow update: if isValidPostUpdate();
+      allow delete: if false;
+    }
+  }
+
+  function isValidNewPost() {
+    return request.resource.data.keys().hasOnly([
+        'text',
+        'category',
+        'history',
+        'createdAt',
+        'comments',
+        'likes',
+        'helpful'
+      ])
+      && request.resource.data.text is string
+      && request.resource.data.text.size() > 0
+      && request.resource.data.text.size() <= 1000
+      && request.resource.data.category in ['検討', '質問', '雑談']
+      && request.resource.data.history is list
+      && request.resource.data.history.size() > 0
+      && request.resource.data.history.size() <= 200
+      && request.resource.data.createdAt is int
+      && request.resource.data.comments is list
+      && request.resource.data.comments.size() == 0
+      && request.resource.data.likes is int
+      && request.resource.data.likes == 0
+      && request.resource.data.helpful is int
+      && request.resource.data.helpful == 0;
+  }
+
+  function isValidPostUpdate() {
+    return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'comments',
+        'likes',
+        'helpful'
+      ])
+      && request.resource.data.text == resource.data.text
+      && request.resource.data.category == resource.data.category
+      && request.resource.data.history == resource.data.history
+      && request.resource.data.createdAt == resource.data.createdAt
+      && isValidCommentsUpdate()
+      && isValidReactionUpdate('likes')
+      && isValidReactionUpdate('helpful');
+  }
+
+  function isValidCommentsUpdate() {
+    return request.resource.data.comments is list
+      && request.resource.data.comments.size() <= 200
+      && request.resource.data.comments.size() >= resource.data.comments.size()
+      && request.resource.data.comments.size() <= resource.data.comments.size() + 1;
+  }
+
+  function isValidReactionUpdate(field) {
+    return request.resource.data[field] is int
+      && request.resource.data[field] >= resource.data[field]
+      && request.resource.data[field] <= resource.data[field] + 1
+      && request.resource.data[field] <= 100000;
+  }
+}
