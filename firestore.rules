@@ -16,6 +16,7 @@ service cloud.firestore {
         'text',
         'category',
         'history',
+        'missIdx',
         'createdAt',
         'comments',
         'likes',
@@ -34,10 +35,24 @@ service cloud.firestore {
       && request.resource.data.likes is int
       && request.resource.data.likes == 0
       && request.resource.data.helpful is int
-      && request.resource.data.helpful == 0;
+      && request.resource.data.helpful == 0
+      && isValidMissIdx();
+  }
+
+  // missIdx（フェーズ2）：悔やまれる局面の指定。任意項目。
+  // ・キーがない場合     → 従来どおり（最終局面から表示）で許可
+  // ・キーがある場合     → int かつ 0 <= missIdx < history.size()（missIdx+1 手目がミスの手）
+  function isValidMissIdx() {
+    return !request.resource.data.keys().hasAny(['missIdx'])
+      || (request.resource.data.missIdx is int
+          && request.resource.data.missIdx >= 0
+          && request.resource.data.missIdx < request.resource.data.history.size());
   }
 
   function isValidPostUpdate() {
+    // 注意（フェーズ2）：更新で触れるキーは comments / likes / helpful のみ。
+    // missIdx は任意キーだが、affectedKeys().hasOnly() の制限により、作成後の追加・変更は自動的に拒否される。
+    // 旧投稿には missIdx が存在しないため、ここで missIdx を直接比較するのは避ける（比較エラーを防ぐため）。
     return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         'comments',
         'likes',

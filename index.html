@@ -105,6 +105,8 @@
     .black { background: radial-gradient(circle at 35% 35%, #555 0%, #000 70%); }
     .white { background: radial-gradient(circle at 35% 35%, #fff 0%, #dcdcdc 80%); border: 1px solid #bbb; }
     .last-move::after { content:""; position:absolute; width:10px; height:10px; border:2px solid red; border-radius:50%; left:50%; top:50%; transform:translate(-50%,-50%); z-index:12; }
+    /* ミスの手の強調（フェーズ2）：最終手の赤リングとは別の、金（アクセント色）リングで区別する */
+    .miss-move::after { content:""; position:absolute; width:12px; height:12px; border:3px solid var(--accent-color); border-radius:50%; left:50%; top:50%; transform:translate(-50%,-50%); z-index:12; box-shadow:0 0 6px rgba(212,175,55,0.8); }
 
     .post-item { background: #333; padding: 20px; border-radius: 12px; margin-bottom: 30px; border: 1px solid transparent; transition: border-color 0.3s; }
     .post-item.highlight { border-color: var(--accent-color); box-shadow: 0 0 0 2px rgba(212,175,55,0.3); }
@@ -187,6 +189,27 @@
             <textarea id="sgf-input" class="sgf-area" data-i18n-ph="placeholder_sgf"></textarea>
             <button class="btn" style="background:#555; color:#fff; padding:12px 8px; font-size:12px; margin-top:10px;" onclick="importSGF()" data-i18n="btn_load">読込</button>
         </div>
+
+        <!-- ミス局面の指定（フェーズ2）：2手以上のときだけ表示 -->
+        <div id="miss-spec-area" style="display:none; margin-top:10px; background:#222; border-radius:8px; padding:10px;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#ccc; cursor:pointer;">
+                <input type="checkbox" id="miss-spec-check" style="accent-color: var(--accent-color);">
+                <span data-i18n="miss_spec_check">悔やまれる局面を指定する</span>
+            </label>
+            <div id="miss-spec-controls" style="display:none; margin-top:8px;">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <button type="button" class="btn" id="miss-spec-prev" aria-label="前の局面へ" style="background:#555; color:#fff; padding:6px 10px; font-size:12px;">◀</button>
+                    <input type="range" id="miss-spec-slider" min="0" max="0" step="1" value="0" style="flex:1; accent-color: var(--accent-color);">
+                    <button type="button" class="btn" id="miss-spec-next" aria-label="次の局面へ" style="background:#555; color:#fff; padding:6px 10px; font-size:12px;">▶</button>
+                </div>
+                <div id="miss-spec-label" style="font-size:12px; color:var(--accent-color); margin-top:6px; min-height:1em;"></div>
+                <div style="margin-top:6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <button type="button" class="btn" id="miss-spec-clear" data-i18n="miss_spec_clear" style="background:#333; color:#aaa; padding:6px 10px; font-size:12px;">指定を解除する</button>
+                    <span data-i18n="miss_spec_hint" style="font-size:12px; color:#aaa;">指定を解除すると続きを打てます</span>
+                </div>
+            </div>
+        </div>
+
         <div style="display:flex; gap:12px; margin-top:5px;">
             <button class="btn" style="flex:1; background:#555; color:white;" onclick="undo()" data-i18n="btn_undo">戻す</button>
             <button class="btn btn-main" style="flex:2;" id="save-btn" data-i18n="btn_post">投稿する</button>
@@ -489,6 +512,14 @@ const TR = {
         help_react_title:  'リアクション',
         help_react_1:      '👍 いいね・💡 参考になった ボタンで投稿に反応できます（1人1回）。',
         analytics_notice:  'アクセス解析（Google Analytics）を利用しています',
+        // フェーズ2：ミス局面（missIdx）関連の表示
+        miss_spec_check:   '悔やまれる局面を指定する',
+        miss_spec_clear:   '指定を解除する',
+        miss_spec_hint:    '指定を解除すると続きを打てます',
+        miss_spec_label:   n => `${n}手目まで表示（次の${n+1}手目がミス）`,
+        miss_badge:        n => `悔やまれる局面（${n}手目まで）`,
+        miss_question:     '次の一手は？',
+        miss_back_btn:     '悔やまれる局面に戻る',
     },
     en: {
         hero:              '【Beginners & kyu players welcome】<br>Post your game and get advice!',
@@ -560,6 +591,14 @@ const TR = {
         help_react_title:  'Reactions',
         help_react_1:      'Use 👍 Like and 💡 Helpful to react to posts (once per user).',
         analytics_notice:  'This site uses Google Analytics (analytics)',
+        // フェーズ2：ミス局面（missIdx）関連の表示
+        miss_spec_check:   'Mark the position before your mistake',
+        miss_spec_clear:   'Clear selection',
+        miss_spec_hint:    'Clear the selection to keep placing stones',
+        miss_spec_label:   n => `Up to move ${n} shown (move ${n+1} is the mistake)`,
+        miss_badge:        n => `Regrettable position (up to move ${n})`,
+        miss_question:     'What should have been played here?',
+        miss_back_btn:     'Back to the missed position',
     }
 };
 
@@ -601,7 +640,22 @@ function setLang(lang) {
         if (input) input.placeholder = t('comment_ph');
         if (sendBtn) sendBtn.textContent = t('send_btn');
         if (shareBtn) shareBtn.textContent = t('share_btn');
+        // フェーズ2：ミス局面バッジ・問いかけ・戻るボタンの文言更新（textContent のみ使用）
+        const mIdx = item.dataset.missIdx;
+        const missBadge = item.querySelector('.miss-badge');
+        const missQ = item.querySelector('.miss-q');
+        const missBack = item.querySelector('.miss-back-btn');
+        if (mIdx && missBadge) {
+            const mFn = TR[lang].miss_badge;
+            if (typeof mFn === 'function') missBadge.textContent = mFn(Number(mIdx));
+        }
+        if (missQ) missQ.textContent = t('miss_question');
+        if (missBack) missBack.textContent = t('miss_back_btn');
     });
+
+    // 注意：list-container 自身が data-i18n（loading）のため、上記ループで一覧が一旦クリアされる。
+    // 言語切替後も一覧を最新の文言で保持するため、ここで再描画する（フェーズ2）。
+    if (window.applyFilters) window.applyFilters();
 }
 window.setLang = setLang;
 
@@ -687,7 +741,7 @@ function checkRules(idx, color, state, history = []) {
 }
 function currentColor() { return moves.length % 2 === 0 ? "black" : "white"; }
 
-function initBoard(targetId, state = null, _history = [], lastIdx = -1, isViewer = false) {
+function initBoard(targetId, state = null, _history = [], lastIdx = -1, isViewer = false, useMissMark = false) {
     const el = document.getElementById(targetId); if(!el) return;
     el.innerHTML = "";
     el.appendChild(document.createElement("div"));
@@ -708,7 +762,8 @@ function initBoard(targetId, state = null, _history = [], lastIdx = -1, isViewer
             if(current[idx]) {
                 let s = document.createElement("div");
                 s.className = "stone " + current[idx];
-                if(idx === lastIdx) s.classList.add("last-move");
+                // 最終手マーカー（赤）と、ミス手マーカー（金）を使い分ける（フェーズ2）
+                if(idx === lastIdx) s.classList.add(useMissMark ? "miss-move" : "last-move");
                 cell.appendChild(s);
             }
             if(!isViewer) {
@@ -721,6 +776,8 @@ function initBoard(targetId, state = null, _history = [], lastIdx = -1, isViewer
 }
 
 function place(i) {
+    // ミス局面の指定中は着手を無効にし、解除を案内する（フェーズ2）
+    if(missSpecActive) { showToast(t('miss_spec_hint'), 'error'); return; }
     if(boardState[i]) return;
     const color = currentColor();
     const next = checkRules(i, color, boardState, boardHistory);
@@ -730,6 +787,7 @@ function place(i) {
     boardState = next;
     moves.push({ idx: i, color });
     initBoard("board-main");
+    updateMissSpecUI();
 }
 
 function undo() {
@@ -744,6 +802,8 @@ function undo() {
         if(next) { boardHistory.push(boardState.join(",")); boardState = next; moves.push(m); }
     });
     initBoard("board-main");
+    // Undo後は missIdx を残り手数の範囲内に補正してプレビューし直す（フェーズ2）
+    updateMissSpecUI();
 }
 
 function importSGF() {
@@ -761,7 +821,107 @@ function importSGF() {
         if(next) { boardHistory.push(boardState.join(",")); boardState = next; moves.push({ idx: y*9+x, color }); }
     });
     initBoard("board-main");
+    // SGF読込後は盤面が作り直されるため、指定が範囲外なら補正またはリセットする（フェーズ2）
+    updateMissSpecUI();
 }
+
+// ===== ミス局面の指定（フェーズ2） =====
+// missIdxPost：「何手目まで打った局面を最初に表示するか」（0〜moves.length-1）。
+// 次の手（missIdxPost+1手目）が「ミスの手」。未指定のまま投稿した場合は missIdx を保存しない。
+let missSpecActive = false;   // 「悔やまれる局面を指定する」チェックの状態
+let missIdxPost = 0;          // 指定中の値（スライダーと同期）
+
+// プレビュー盤面：先頭から missIdxPost 手を、boardState / boardHistory / moves に触れない別変数で再生する
+function renderMissPreview() {
+    let st = Array(81).fill(null);
+    let last = -1;
+    // missIdx 手目まで＝moves の先頭から missIdx 個（0基準で i < missIdxPost）を再生する。
+    // ミスの手（missIdx+1手目＝moves[missIdxPost]）はまだ置かない。
+    for(let i = 0; i < missIdxPost && i < moves.length; i++) {
+        const m = moves[i];
+        const next = checkRules(m.idx, m.color, st); // 既存の進行判定ロジックをそのまま使用
+        if(next) { st = next; last = m.idx; }
+    }
+    // isViewer=true で描画すると cell の place 登録が行われない（タップ無効）
+    initBoard("board-main", st, [], last, true);
+}
+
+function updateMissSpecLabel() {
+    const el = document.getElementById("miss-spec-label");
+    if(!el) return;
+    const fn = TR[currentLang].miss_spec_label;
+    el.textContent = typeof fn === 'function' ? fn(missIdxPost) : '';
+}
+
+// 指定UIの表示・スライダー範囲・チェック状態・プレビューをまとめて最新化する
+function updateMissSpecUI() {
+    const area = document.getElementById("miss-spec-area");
+    const check = document.getElementById("miss-spec-check");
+    const controls = document.getElementById("miss-spec-controls");
+    const slider = document.getElementById("miss-spec-slider");
+    if(!area || !check || !controls || !slider) return;
+
+    // 2手以上のときだけUIを出す（仕様）
+    area.style.display = (moves.length >= 2) ? "block" : "none";
+
+    // 手数が減った（Undo / SGF読込）場合は指定をリセット
+    if(moves.length < 2) missSpecActive = false;
+    check.checked = missSpecActive;
+
+    // 範囲補正（0 <= missIdx <= moves.length-1）
+    if(missIdxPost > moves.length - 1 || missIdxPost < 0) {
+        missIdxPost = Math.min(Math.max(missIdxPost, 0), Math.max(0, moves.length - 1));
+    }
+    slider.min = "0";
+    slider.max = String(Math.max(0, moves.length - 1));
+    slider.value = String(missIdxPost);
+    updateMissSpecLabel();
+
+    if(missSpecActive) {
+        controls.style.display = "block";
+        renderMissPreview(); // プレビュー盤面に切替（この間 place は無効）
+    } else {
+        controls.style.display = "none";
+        initBoard("board-main"); // 指定解除時は通常の着手モードの盤面へ戻す
+    }
+}
+
+// UIイベントの結線（要素はここより前の HTML に存在する）
+(function initMissSpecUI() {
+    const check = document.getElementById("miss-spec-check");
+    const slider = document.getElementById("miss-spec-slider");
+    const prevBtn = document.getElementById("miss-spec-prev");
+    const nextBtn = document.getElementById("miss-spec-next");
+    const clearBtn = document.getElementById("miss-spec-clear");
+    if(!check || !slider || !prevBtn || !nextBtn || !clearBtn) return;
+
+    check.onchange = () => {
+        if(check.checked && moves.length < 2) { check.checked = false; return; } // 2手未満では指定不可
+        if(check.checked) {
+            // 指定開始の初期値は最終手の直前（仕様：history.length - 1）
+            missIdxPost = Math.max(0, moves.length - 1);
+        }
+        missSpecActive = check.checked;
+        updateMissSpecUI();
+    };
+    slider.oninput = () => {
+        missIdxPost = parseInt(slider.value, 10) || 0;
+        updateMissSpecLabel();
+        renderMissPreview();
+    };
+    prevBtn.onclick = () => setMissIdxScroll(-1);
+    nextBtn.onclick = () => setMissIdxScroll(1);
+    clearBtn.onclick = () => { missSpecActive = false; updateMissSpecUI(); };
+
+    // 前後ボタンで missIdx を1つ動かす
+    function setMissIdxScroll(dir) {
+        if(!missSpecActive) return;
+        missIdxPost = Math.max(0, Math.min(moves.length - 1, missIdxPost + dir));
+        slider.value = String(missIdxPost);
+        updateMissSpecLabel();
+        renderMissPreview();
+    }
+})();
 
 // ===== 投稿 =====
 document.getElementById("save-btn").onclick = async () => {
@@ -773,17 +933,25 @@ document.getElementById("save-btn").onclick = async () => {
     const cat = document.getElementById("post-category").value;
     document.getElementById("save-btn").disabled = true;
     try {
-        await window.addDoc(window.collection(window.db, "posts"), {
+        const postData = {
             text: txt, category: cat, history: moves,
             createdAt: Date.now(), comments: [],
             likes: 0, helpful: 0   // リアクション初期値
-        });
-        trackEvent('post_created', { category: cat }); // 解析（フェーズ1）：カテゴリのみ送信
+        };
+        // フェーズ2：チェックがオンで範囲が有効なときだけ missIdx を保存（オフなら保存しない＝従来どおり）
+        if (missSpecActive && moves.length >= 1 && missIdxPost >= 0 && missIdxPost < moves.length) {
+            postData.missIdx = missIdxPost;
+        }
+        await window.addDoc(window.collection(window.db, "posts"), postData);
+        trackEvent('post_created', { category: cat, has_miss: ('missIdx' in postData) }); // 解析：カテゴリと指定有無のみ（本文は送らない）
         showToast(t('posted'), 'success');
         document.getElementById("msg").value = "";
         document.getElementById("sgf-input").value = "";
         boardState = Array(81).fill(null); moves = []; boardHistory = [];
         initBoard("board-main");
+        // 投稿後はミス指定をリセット（チェックボックスもオフに戻る）
+        missSpecActive = false; missIdxPost = 0;
+        updateMissSpecUI();
         changeTab('list');
     } catch(e) { showToast(t('save_error'), 'error'); }
     document.getElementById("save-btn").disabled = false;
@@ -810,7 +978,8 @@ window.copyLink = (postId) => {
 };
 
 // ===== 棋譜ビューア =====
-window.step = (postId, dir, history, jumpTo = null) => {
+// missIdx（フェーズ2）：ある場合は「悔やまれる局面」を基準にした初期表示・ボタン動作に使用する
+window.step = (postId, dir, history, jumpTo = null, missIdx = null) => {
     if(viewerStates[postId] === undefined) viewerStates[postId] = history.length;
     const before = viewerStates[postId];
     viewerStates[postId] = jumpTo !== null ? jumpTo : viewerStates[postId] + dir;
@@ -823,8 +992,12 @@ window.step = (postId, dir, history, jumpTo = null) => {
         const next = checkRules(m.idx, m.color, tempBoard);
         if(next) { tempBoard = next; lastIdx = m.idx; }
     }
-    initBoard("b-" + postId, tempBoard, history, lastIdx, true);
-    document.getElementById("step-label-" + postId).textContent = after + " / " + history.length;
+    // ミスの手（配列 missIdx 番＝1-base で missIdx+1 手目）を「今ちょうど再生した」ときだけ専用マーカーを出す。
+    // 初期表示（after = missIdx）では出さないので、ネタバレを防げる。
+    const showingMissMove = (missIdx !== null && Number.isInteger(missIdx) && missIdx >= 0 && after === missIdx + 1);
+    initBoard("b-" + postId, tempBoard, history, lastIdx, true, showingMissMove);
+    const labelEl = document.getElementById("step-label-" + postId);
+    if(labelEl) labelEl.textContent = after + " / " + history.length; // 進行カウンター（要素消失時は念のため無視）
 };
 
 // ===== 一覧レンダリング =====
@@ -871,6 +1044,30 @@ function renderList(posts, append = false) {
         header.appendChild(tagWrap); header.appendChild(shareBtn);
         item.appendChild(header);
 
+        // ===== ミス局面バッジ（フェーズ2） =====
+        // missIdx は「何手目まで打った局面を最初に表示するか」。次の手（missIdx+1手目）がミスの手。
+        // 初期表示ではミスの手は見えない（先頭から missIdx 手までを表示）。
+        const hasMiss = Number.isInteger(p.missIdx) && p.missIdx >= 0 && p.missIdx < p.history.length;
+        const initStep = hasMiss ? p.missIdx : p.history.length;
+        item.dataset.missIdx = hasMiss ? String(p.missIdx) : "";
+        if(hasMiss) {
+            const missWrap = document.createElement("div");
+            missWrap.style.cssText = "margin:8px 0 4px;";
+            const missBadge = document.createElement("span");
+            missBadge.className = "miss-badge";
+            missBadge.style.cssText = "display:inline-block; padding:4px 10px; border-radius:14px; font-size:12px; font-weight:bold; background:rgba(212,175,55,0.15); border:1px solid var(--accent-color); color:var(--accent-color);";
+            const mFn = TR[currentLang].miss_badge;
+            missBadge.textContent = (typeof mFn === 'function') ? mFn(p.missIdx) : '';
+            const missQ = document.createElement("div");
+            missQ.className = "miss-q";
+            missQ.style.cssText = "font-size:13px; color:#ddd; margin-top:4px; font-weight:bold;";
+            missQ.textContent = t('miss_question');
+            // テキストは textContent で挿入（ユーザー入力を含む可能性のある要素には innerHTML を使わない）
+            missWrap.appendChild(missBadge);
+            missWrap.appendChild(missQ);
+            item.appendChild(missWrap);
+        }
+
         // 本文
         const textDiv = document.createElement("div");
         textDiv.style.cssText = "margin:10px 0; font-size:15px;";
@@ -896,7 +1093,7 @@ function renderList(posts, append = false) {
         const stepLabel = document.createElement("span");
         stepLabel.id = "step-label-" + p.id;
         stepLabel.style.cssText = "flex:1; text-align:center; font-size:14px;";
-        stepLabel.textContent = p.history.length + " / " + p.history.length;
+        stepLabel.textContent = initStep + " / " + p.history.length;
         [
             mkStepBtn("step-jump", "|◀", () => step(p.id, 0, p.history, 0), "最初"),
             mkStepBtn("btn btn-step", "◀",  () => step(p.id, -1, p.history), "1手戻る"),
@@ -904,6 +1101,11 @@ function renderList(posts, append = false) {
             mkStepBtn("btn btn-step", "▶",  () => step(p.id, 1, p.history), "1手進む"),
             mkStepBtn("step-jump", "▶|", () => step(p.id, 0, p.history, p.history.length), "最後"),
         ].forEach(el => stepDiv.appendChild(el));
+        // 「悔やまれる局面に戻る」ボタン（フェーズ2）：missIdx がある投稿専用
+        if(hasMiss) {
+            stepDiv.appendChild(mkStepBtn("step-jump miss-back-btn", t('miss_back_btn'),
+                () => step(p.id, 0, p.history, p.missIdx, p.missIdx), "悔やまれる局面に戻る"));
+        }
         item.appendChild(stepDiv);
 
         // ===== リアクションボタン =====
@@ -967,7 +1169,8 @@ function renderList(posts, append = false) {
         item.appendChild(cmtRow);
 
         container.appendChild(item);
-        setTimeout(() => step(p.id, 0, p.history, p.history.length), 10);
+        // 初期表示：missIdx があれば悔やまれる局面（n手目まで）、なければ従来どおり最終局面（フェーズ2）
+        setTimeout(() => step(p.id, 0, p.history, initStep, hasMiss ? p.missIdx : null), 10);
     });
 }
 
