@@ -2,7 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<!-- 拡大を許可するため user-scalable=no / maximum-scale は削除済み（フェーズ1） -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>9路盤 ONE MISS Board | 囲碁 初心者 質問・棋譜共有・ミス検討掲示板</title>
 <meta name="description" content="囲碁9路盤のミス手を共有・検討できる掲示板。初心者・級位者大歓迎。SGFで棋譜を投稿してアドバイスをもらおう。9路盤専用の囲碁 初心者 質問・検討コミュニティ。">
@@ -16,6 +17,32 @@
 <meta property="og:image" content="https://igo-9roban-onemiss.netlify.app/2c453f6b08445aaebf64e6527c9fca41_t.jpeg">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
+
+<!-- ===== Google Analytics 4（フェーズ1） =====
+     測定IDは定数のプレースホルダー。サイトオーナーが後で実IDに差し替える。
+     プレースホルダー（G-XXXXXXXXXX）のままのときは gtag.js を読み込まず、コンソールにも何も出力しない。
+     gtag.js がブロック・未読み込みの場合も trackEvent は無音で捨て、アプリは壊れない。 -->
+<script>
+    // 測定ID（差し替え予定のプレースホルダー）
+    const GA_MEASUREMENT_ID = "G-XXXXXXXXXX";
+
+    // 未設定時も呼び出し側は安全なように、先に no-op を入れておく
+    window.trackEvent = function () { /* GA未設定時は無音で破棄 */ };
+
+    (function initGA() {
+        // プレースホルダーのまま、または G- 実ID形式でないときは gtag.js を読み込まない（コンソール出力もしない）
+        if (GA_MEASUREMENT_ID === "G-XXXXXXXXXX") return;
+        if (!/^G-[0-9A-Z]{6,}$/.test(GA_MEASUREMENT_ID)) return;
+        window.dataLayer = window.dataLayer || [];
+        window.gtag = function () { window.dataLayer.push(arguments); };
+        const s = document.createElement("script");
+        s.async = true;
+        s.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(GA_MEASUREMENT_ID);
+        document.head.appendChild(s);
+        window.gtag("js", new Date());
+        window.gtag("config", GA_MEASUREMENT_ID);
+    })();
+</script>
 
 <style>
     :root {
@@ -238,10 +265,14 @@
                 <li data-i18n="help_react_1">👍 いいね・💡 参考になった ボタンで投稿に反応できます（1人1回）。</li>
             </ul>
         </div>
-        <div style="text-align:center; font-size:12px; color:#666; padding:20px;">
+        <!-- 管理人への連絡：連絡先が確定するまで非表示（フェーズ1） -->
+        <div id="contact-block" style="display:none; text-align:center; font-size:12px; color:#666; padding:20px;">
             <span data-i18n="contact_label">管理人への連絡：</span><a id="contact-link" href="#" style="color:#888;"></a>
         </div>
     </div>
+
+    <!-- アクセス解析を利用している旨の明示（日本語・英語切替対応） -->
+    <div id="analytics-note" style="text-align:center; font-size:11px; color:#666; padding:10px 0;" data-i18n="analytics_notice">アクセス解析（Google Analytics）を利用しています</div>
 </div>
 
 <script type="module">
@@ -343,6 +374,7 @@
             localStorage.setItem(key, "1");
             
             if (btn) btn.classList.add("reacted");
+            trackEvent('reaction', { type: type }); // 解析（フェーズ1）：likes/helpful の種別のみ
             showToast(t('thanks_reaction'), 'success');
             // 数値は onSnapshot の再描画により自動更新されるため手動加算は不要
         } catch(e) { 
@@ -456,6 +488,7 @@ const TR = {
         help_replay_2:     '「|◀」で最初、「▶|」で最終局面にジャンプできます。',
         help_react_title:  'リアクション',
         help_react_1:      '👍 いいね・💡 参考になった ボタンで投稿に反応できます（1人1回）。',
+        analytics_notice:  'アクセス解析（Google Analytics）を利用しています',
     },
     en: {
         hero:              '【Beginners & kyu players welcome】<br>Post your game and get advice!',
@@ -526,6 +559,7 @@ const TR = {
         help_replay_2:     '|◀ jumps to the start; ▶| jumps to the final position.',
         help_react_title:  'Reactions',
         help_react_1:      'Use 👍 Like and 💡 Helpful to react to posts (once per user).',
+        analytics_notice:  'This site uses Google Analytics (analytics)',
     }
 };
 
@@ -541,6 +575,8 @@ function setLang(lang) {
 
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const v = TR[lang][el.getAttribute('data-i18n')];
+        // 注意：innerHTML は TR 記述子内の固定辞書文字列（hero の <br> など）のみに使用。
+        // ユーザー入力は一切この辞書を通らないため XSS にならない（フェーズ1で安全性を明示）。
         if (v !== undefined && typeof v !== 'function') el.innerHTML = v;
     });
     document.querySelectorAll('[data-i18n-ph]').forEach(el => {
@@ -610,6 +646,8 @@ function showToast(msg, type = "normal") {
 
 // ===== 盤面ロジック =====
 let moves = [];
+// カテゴリ許可リスト（フェーズ1）。Firestore から来る想定外の値は表示時にここで正規化する。
+const CATEGORY_WHITELIST = ["検討", "質問", "雑談"];
 let boardState = Array(81).fill(null);
 let boardHistory = [];
 const letters = ["A","B","C","D","E","F","G","H","J"];
@@ -711,7 +749,9 @@ function undo() {
 function importSGF() {
     const sgf = document.getElementById("sgf-input").value;
     const mm = sgf.match(/([BW])\[([a-i]{2})\]/g);
-    if(!mm) { showToast(t('sgf_error'), 'error'); return; }
+    // アクセス解析（フェーズ1）：SGF読み込みの成否のみ送信。SGF本文は送らない
+    if(!mm) { trackEvent('sgf_import', { result: 'fail' }); showToast(t('sgf_error'), 'error'); return; }
+    trackEvent('sgf_import', { result: 'success' });
     playStoneSound();
     boardState = Array(81).fill(null); moves = []; boardHistory = [];
     mm.forEach(m => {
@@ -738,6 +778,7 @@ document.getElementById("save-btn").onclick = async () => {
             createdAt: Date.now(), comments: [],
             likes: 0, helpful: 0   // リアクション初期値
         });
+        trackEvent('post_created', { category: cat }); // 解析（フェーズ1）：カテゴリのみ送信
         showToast(t('posted'), 'success');
         document.getElementById("msg").value = "";
         document.getElementById("sgf-input").value = "";
@@ -755,6 +796,7 @@ window.sendComment = async (postId) => {
     if(!val) { showToast(t('comment_empty'), 'error'); return; }
     try {
         await window.updateDoc(window.doc(window.db, "posts", postId), { comments: window.arrayUnion(val) });
+        trackEvent('comment_added'); // 解析（フェーズ1）：コメント本文は送らない
         input.value = "";
         showToast(t('commented'), 'success');
     } catch(e) { showToast(t('send_error'), 'error'); }
@@ -763,6 +805,7 @@ window.sendComment = async (postId) => {
 // ===== 共有リンク =====
 window.copyLink = (postId) => {
     const url = location.origin + location.pathname + "?id=" + postId;
+    trackEvent('share_link_click'); // 解析（フェーズ1）
     navigator.clipboard.writeText(url).then(() => showToast(t('copied'), 'success'));
 };
 
@@ -811,8 +854,11 @@ function renderList(posts, append = false) {
         header.style.cssText = "display:flex; justify-content:space-between; align-items:flex-start;";
         const tagWrap = document.createElement("div");
         const tag = document.createElement("span");
-        tag.className = "tag tag-" + (p.category || "検討");
-        tag.textContent = p.category || "検討";
+        // カテゴリは許可リストで正規化（フェーズ1）。想定外の値は「検討」に集約し、
+        // 除算・未知クラス名・表示崩れを防止する。
+        const safeCat = CATEGORY_WHITELIST.includes(p.category) ? p.category : "検討";
+        tag.className = "tag tag-" + safeCat;
+        tag.textContent = safeCat;
         const idLabel = document.createElement("div");
         idLabel.style.cssText = "color:var(--accent-color); font-weight:bold; font-size:11px;";
         idLabel.textContent = "# " + p.id.slice(0, 5);
