@@ -265,9 +265,9 @@
                 <li data-i18n="help_react_1">👍 いいね・💡 参考になった ボタンで投稿に反応できます（1人1回）。</li>
             </ul>
         </div>
-        <!-- 管理人への連絡：連絡先が確定するまで非表示（フェーズ1） -->
-        <div id="contact-block" style="display:none; text-align:center; font-size:12px; color:#666; padding:20px;">
-            <span data-i18n="contact_label">管理人への連絡：</span><a id="contact-link" href="#" style="color:#888;"></a>
+        <!-- 管理人への連絡：X (Twitter) のリンクへ変更（フェーズ1 承認後対応） -->
+        <div id="contact-block" style="text-align:center; font-size:12px; color:#666; padding:20px;">
+            <span data-i18n="contact_label">管理人への連絡：</span><a id="contact-link" href="https://x.com/nagasu159340" target="_blank" rel="noopener noreferrer" style="color:#888;">@nagasu159340</a>
         </div>
     </div>
 
@@ -980,13 +980,9 @@ function changeTab(tab) {
 }
 window.changeTab = changeTab;
 
-// ===== メールアドレス スパム対策 =====
-(function() {
-    const u = "nagasudai88", d = "gmail.com";
-    const a = document.getElementById("contact-link");
-    a.href = "mailto:" + u + "@" + d;
-    a.textContent = u + "@" + d;
-})();
+// ===== 管理人への連絡（フェーズ1） =====
+// 連絡先は X (Twitter) のリンクに変更したため、旧メールアドレス組み立て処理は削除。
+// リンク本体は HTML 側に target="_blank" rel="noopener noreferrer" 付きで記述済み。
 
 initBoard("board-main");
 
