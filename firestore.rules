@@ -11,7 +11,7 @@ rules_version = '2';
 //   ・likes / helpful の +1 は、同じバッチで本人のリアクション記録
 //     posts/{id}/reactions/{uid}_like|helpful の「新規作成」とセットのみ許可（フェーズ3B-2）
 // ・旧データ互換：authorUid / Timestamp を持たない旧投稿の読み取り・更新は従来どおり許可
-//   （リアクションは1人1回になったため、旧来の二重押下データはそのまま残置。移行はしない）
+//   （リアクションは同じ匿名IDにつき1回のため、旧来の「複数回押した記録」データはそのまま残置。移行はしない）
 // ・delete：許可しない
 // ・missIdx（フェーズ2）：任意キー。ある場合は 0 <= missIdx < history.size()
 // ============================================================
@@ -30,7 +30,8 @@ service cloud.firestore {
       allow delete: if false;
 
       // ========== リアクション記録（フェーズ3B-2） ==========
-      // 1人1回を担保する記録。reactionId は「{uid}_like」または「{uid}_helpful」のみ。
+      // 同じ匿名IDにつき1回を担保する記録。概要：匿名IDはブラウザデータを消すと変わるため「人」ではなく「匿名ID」単位。
+      // reactionId は「{uid}_like」または「{uid}_helpful」のみ。
       match /reactions/{reactionId} {
         // 本人による1回のみの作成を許可
         allow create: if isValidReactionDoc(reactionId);

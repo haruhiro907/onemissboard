@@ -285,7 +285,7 @@
             </ul>
             <h3 data-i18n="help_react_title">リアクション</h3>
             <ul>
-                <li data-i18n="help_react_1">👍 いいね・💡 参考になった ボタンで投稿に反応できます（1人1回）。</li>
+                <li data-i18n="help_react_1">👍 いいね・💡 参考になった ボタンで投稿に反応できます（同じ匿名IDにつき1回）。</li>
             </ul>
         </div>
         <!-- 管理人への連絡：X (Twitter) のリンクへ変更（フェーズ1 承認後対応） -->
@@ -417,7 +417,7 @@
 
     window.setSort = (val) => { currentFilter.sort = val; applyFilters(); };
 
-    // リアクション送信（1人1回をサーバーで担保：フェーズ3B-2）
+    // リアクション送信（同じ匿名IDにつき1回をサーバーで担保：フェーズ3B-2）
     window.sendReaction = async (postId, type) => {
         // 匿名認証ガード（フェーズ3A-1）：未認証のときは案内して書き込みを行わない
         if (!window.appAuthState || !window.appAuthState.uid) { showToast(t('auth_required'), 'error'); return; }
@@ -432,7 +432,8 @@
 
         try {
             // 押下記録（reactions/{uid}_{type}）と posts の +1 を同一バッチでコミット。
-            // ルールは「記録の新規作成とセットのみ +1 許可」なので、2回押し・改竄は両方ともサーバーで拒否される。
+            // ルールは「記録の新規作成とセットのみ +1 許可」なので、同じ匿名IDの2回押し・改竄は
+            // 両方ともサーバーで拒否される（フェーズ3B-2）。
             const uid = window.appAuthState.uid;
             const rtype = (type === 'likes') ? 'like' : 'helpful'; // 記録側の type 値
             const batch = writeBatch(db);
@@ -532,6 +533,7 @@ const TR = {
         save_error:        '保存エラーが発生しました',
         send_error:        '送信に失敗しました',
         already_reacted:   'すでに反応済みです',
+        dup_comment:       '同じ内容のコメントがすでにあります',
         thanks_reaction:   'ありがとう！',
         error_generic:     'エラーが発生しました',
         post_not_found:    '指定された投稿が見つかりませんでした',
@@ -559,7 +561,7 @@ const TR = {
         help_replay_1:     '◀▶ボタンで1手ずつ進めたり戻したりできます。',
         help_replay_2:     '「|◀」で最初、「▶|」で最終局面にジャンプできます。',
         help_react_title:  'リアクション',
-        help_react_1:      '👍 いいね・💡 参考になった ボタンで投稿に反応できます（1人1回）。',
+        help_react_1:      '👍 いいね・💡 参考になった ボタンで投稿に反応できます（同じ匿名IDにつき1回）。',
         analytics_notice:  'アクセス解析（Google Analytics）を利用しています',
         // フェーズ3A：匿名認証
         auth_required:     '投稿・コメントには認証が必要です。しばらく待ってからもう一度お試しください',
@@ -613,6 +615,7 @@ const TR = {
         save_error:        'Failed to save post',
         send_error:        'Failed to send comment',
         already_reacted:   'Already reacted!',
+        dup_comment:       'An identical comment already exists.',
         thanks_reaction:   'Thanks!',
         error_generic:     'An error occurred',
         post_not_found:    'Post not found',
@@ -640,7 +643,7 @@ const TR = {
         help_replay_1:     'Use ◀▶ to step through moves one by one.',
         help_replay_2:     '|◀ jumps to the start; ▶| jumps to the final position.',
         help_react_title:  'Reactions',
-        help_react_1:      'Use 👍 Like and 💡 Helpful to react to posts (once per user).',
+        help_react_1:      'Use 👍 Like and 💡 Helpful to react to posts (once per anonymous ID).',
         analytics_notice:  'This site uses Google Analytics (analytics)',
         // フェーズ3A：匿名認証
         auth_required:     'Sign-in is required to post or comment. Please try again shortly.',
@@ -1039,6 +1042,13 @@ window.sendComment = async (postId) => {
     const input = document.getElementById("in-" + postId);
     const val = input.value.trim();
     if(!val) { showToast(t('comment_empty'), 'error'); return; }
+    // 重複チェック（フェーズ3Bの追加対応）：同じ投稿に同じ内容のコメントが既にあれば送らない。
+    // （arrayUnion は同一文字列を追加しないため、送信すると「成功扱いだがコメントが増えない」）
+    const listEl = document.getElementById("clist-" + postId);
+    if (listEl && [...listEl.children].some(c => c.textContent === val)) {
+        showToast(t('dup_comment'), 'error');
+        return;
+    }
     try {
         await window.updateDoc(window.doc(window.db, "posts", postId), { comments: window.arrayUnion(val) });
         trackEvent('comment_added'); // 解析（フェーズ1）：コメント本文は送らない
