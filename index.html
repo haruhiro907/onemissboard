@@ -1032,6 +1032,9 @@ window.sendComment = async (postId) => {
         await window.updateDoc(window.doc(window.db, "posts", postId), { comments: window.arrayUnion(val) });
         trackEvent('comment_added'); // 解析（フェーズ1）：コメント本文は送らない
         input.value = "";
+        // 文字数表示を戻す（フェーズ3B-1）
+        const cc = document.getElementById("cc-" + postId);
+        if (cc) cc.textContent = "0/500";
         showToast(t('commented'), 'success');
     } catch(e) { showToast(t('send_error'), 'error'); }
 };
@@ -1225,13 +1228,24 @@ function renderList(posts, append = false) {
         cmtInput.className = "cmt-input";
         cmtInput.placeholder = t('comment_ph');
         cmtInput.style.marginBottom = "0";
+        cmtInput.maxLength = 500; // コメント1件は1〜500文字（ルールと同じ上限：フェーズ3B-1）
         cmtInput.addEventListener("keydown", e => { if(e.key === "Enter") sendComment(p.id); });
+        // 文字数表示（フェーズ3B-1）
+        const charCount = document.createElement("span");
+        charCount.className = "cmt-char-count";
+        charCount.id = "cc-" + p.id;
+        charCount.style.cssText = "font-size:11px; color:#888; align-self:center; white-space:nowrap;";
+        charCount.textContent = "0/500";
+        cmtInput.addEventListener("input", () => {
+            const cc = document.getElementById("cc-" + p.id);
+            if (cc) cc.textContent = cmtInput.value.length + "/500";
+        });
         const cmtBtn = document.createElement("button");
         cmtBtn.className = "btn cmt-send-btn";
         cmtBtn.style.cssText = "background:var(--accent-color); padding:8px 15px;";
         cmtBtn.textContent = t('send_btn');
         cmtBtn.onclick = () => sendComment(p.id);
-        cmtRow.appendChild(cmtInput); cmtRow.appendChild(cmtBtn);
+        cmtRow.appendChild(cmtInput); cmtRow.appendChild(charCount); cmtRow.appendChild(cmtBtn);
         item.appendChild(cmtRow);
 
         container.appendChild(item);

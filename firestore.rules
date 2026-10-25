@@ -1,12 +1,13 @@
 rules_version = '2';
 
 // ============================================================
-// Firestore セキュリティルール（フェーズ3A）
+// Firestore セキュリティルール（フェーズ3A / 3B-1）
 // 方針：
 // ・posts 以外（サブコレクションを含む未定義ルート）は既定で拒否
 // ・create（新規投稿）：匿名認証必須 + 自分の uid を authorUid に保存
 //                       + createdAt はサーバー時刻（serverTimestamp()）
 // ・update：匿名認証必須。追加・変更できるキーは comments / likes / helpful のみ
+//   ・comments は「追記専用」（フェーズ3B-1）。既存要素の書き換え・削除・並べ替えは不可
 // ・旧データ互換：authorUid / Timestamp を持たない旧投稿の読み取り・更新は従来どおり許可
 // ・delete：許可しない
 // ・missIdx（フェーズ2）：任意キー。ある場合は 0 <= missIdx < history.size()
@@ -58,15 +59,39 @@ service cloud.firestore {
           && request.resource.data.missIdx < request.resource.data.history.size());
   }
 
-  // comments の追加のみ許可（旧コメント配列の後方互換）
+  // ============================================================
+  // comments の検査（フェーズ3B-1：追記専用）
+  // ・コメントを変えない更新（リアクションのみ）＝ comments が完全に同一
+  // ・1件追加の更新＝ 既存の要素はすべて同一（先頭からの一致）で、追加分は文字列で1〜500文字、全体200件以下
+  // ・既存コメントの書き換え・削除・並べ替え・複数件追加は拒否
+  // ※「先頭からの一致」の検証には、リストのスライス（newC[0:oldC.size()] == oldC）と同じ結果を
+  //    公式メソッド concat で実現する方式を使う：
+  //    「旧リストに新たな末尾1件を連結したものが新リストと完全一致」なら、
+  //    既存部分の変更有無まで含めて厳密に追記専用であることを保証できる。
+  // ============================================================
   function isValidCommentsUpdate() {
-    return request.resource.data.comments is list
-      && request.resource.data.comments.size() <= 200
-      && request.resource.data.comments.size() >= resource.data.comments.size()
-      && request.resource.data.comments.size() <= resource.data.comments.size() + 1;
+    return (request.resource.data.comments == resource.data.comments)
+      || isValidCommentsAppend();
   }
 
-  // likes / helpful の1手増加のみ許可（取り消し・一気書き換えは不可）
+  function isValidCommentsAppend() {
+    return request.resource.data.comments is list
+      // 件数は「既存 +1」のときだけ追記とみなす
+      && request.resource.data.comments.size() == resource.data.comments.size() + 1
+      && request.resource.data.comments.size() <= 200
+      // 追加される1件は文字列、かつ1文字以上500文字以下
+      && isValidNewComment()
+      // 既存要素の書き換え・入れ替え・削除を不可にする（旧リスト＋新末尾1件 ＝ 新リスト）
+      && request.resource.data.comments == resource.data.comments.concat([request.resource.data.comments[resource.data.comments.size()]]);
+  }
+
+  function isValidNewComment() {
+    return request.resource.data.comments[resource.data.comments.size()] is string
+      && request.resource.data.comments[resource.data.comments.size()].size() >= 1
+      && request.resource.data.comments[resource.data.comments.size()].size() <= 500;
+  }
+
+  // likes / helpful の増加のみ許可（取り消し・一気書き換えは不可）
   function isValidReactionUpdate(field) {
     return request.resource.data[field] is int
       && request.resource.data[field] >= resource.data[field]
