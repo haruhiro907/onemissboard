@@ -1,0 +1,7 @@
+# ルールテストは静的サイトのビルド対象外。依存物はコミットしない。（フェーズ3B）
+tools/rules-test/node_modules/
+tools/rules-test/firestore.rules.tmp
+tools/rules-test/results.txt
+tools/rules-test/firebase-debug.log
+tools/rules-test/firestore-debug.log
+tools/rules-test/firestore-debug.log.export
