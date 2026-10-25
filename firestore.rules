@@ -1,27 +1,98 @@
 rules_version = '2';
 
+// ============================================================
+// Firestore セキュリティルール（フェーズ3A）
+// 方針：
+// ・posts 以外（サブコレクションを含む未定義ルート）は既定で拒否
+// ・create（新規投稿）：匿名認証必須 + 自分の uid を authorUid に保存
+//                       + createdAt はサーバー時刻（serverTimestamp()）
+// ・update：匿名認証必須。追加・変更できるキーは comments / likes / helpful のみ
+// ・旧データ互換：authorUid / Timestamp を持たない旧投稿の読み取り・更新は従来どおり許可
+// ・delete：許可しない
+// ・missIdx（フェーズ2）：任意キー。ある場合は 0 <= missIdx < history.size()
+// ============================================================
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ---------- 投稿コレクション ----------
     match /posts/{postId} {
+      // 読み取りは全員に許可（公開掲示板）
       allow read: if true;
 
       allow create: if isValidNewPost();
       allow update: if isValidPostUpdate();
+      // 削除は許可しない（スパム投稿の即時消去等は管理者用の別手段を検討）
       allow delete: if false;
     }
   }
 
+  // ============================================================
+  // 共通の検査関数
+  // ============================================================
+
+  // 匿名認証が通っていること（フェーズ3A-1）
+  function isSignedIn() {
+    return request.auth != null;
+  }
+
+  // 投稿者の一致検査：authorUid は string、かつ自分自身の uid と一致（フェーズ3A-1）
+  function isValidAuthorUid() {
+    return isSignedIn()
+      && request.resource.data.authorUid is string
+      && request.resource.data.authorUid == request.auth.uid;
+  }
+
+  // createdAt はサーバー時刻でなければならない（フェーズ3A-3）。
+  // クライアント時計の Date.now()（旧実装）は新規作成では許可しない。
+  function isValidCreatedAtForCreate() {
+    return request.resource.data.createdAt == request.time;
+  }
+
+  // missIdx（フェーズ2）：悔やまれる局面の指定。任意項目。
+  // ・キーがない場合 → 従来どおり（最終局面から表示）で許可
+  // ・キーがある場合 → int かつ 0 <= missIdx < history.size()（missIdx+1 手目がミスの手）
+  function isValidMissIdx() {
+    return !request.resource.data.keys().hasAny(['missIdx'])
+      || (request.resource.data.missIdx is int
+          && request.resource.data.missIdx >= 0
+          && request.resource.data.missIdx < request.resource.data.history.size());
+  }
+
+  // comments の追加のみ許可（旧コメント配列の後方互換）
+  function isValidCommentsUpdate() {
+    return request.resource.data.comments is list
+      && request.resource.data.comments.size() <= 200
+      && request.resource.data.comments.size() >= resource.data.comments.size()
+      && request.resource.data.comments.size() <= resource.data.comments.size() + 1;
+  }
+
+  // likes / helpful の1手増加のみ許可（取り消し・一気書き換えは不可）
+  function isValidReactionUpdate(field) {
+    return request.resource.data[field] is int
+      && request.resource.data[field] >= resource.data[field]
+      && request.resource.data[field] <= resource.data[field] + 1
+      && request.resource.data[field] <= 100000;
+  }
+
+  // ============================================================
+  // 新規投稿（create）
+  // ============================================================
   function isValidNewPost() {
-    return request.resource.data.keys().hasOnly([
-        'text',
-        'category',
-        'history',
-        'missIdx',
-        'createdAt',
-        'comments',
-        'likes',
-        'helpful'
-      ])
+    // 匿名認証必須（フェーズ3A-1）。失敗時はクライアント側で案内するので、ここでも二重に拒否する。
+    return isSignedIn()
+      && isValidAuthorUid()
+      // 書き込み可能なキーは下記に限定（未知キーは不可）
+      && request.resource.data.keys().hasOnly([
+          'text',
+          'category',
+          'history',
+          'missIdx',
+          'createdAt',
+          'comments',
+          'likes',
+          'helpful',
+          'authorUid'
+        ])
       && request.resource.data.text is string
       && request.resource.data.text.size() > 0
       && request.resource.data.text.size() <= 1000
@@ -29,7 +100,8 @@ service cloud.firestore {
       && request.resource.data.history is list
       && request.resource.data.history.size() > 0
       && request.resource.data.history.size() <= 200
-      && request.resource.data.createdAt is int
+      // createdAt はサーバー時刻のみ許可（フェーズ3A-3）
+      && isValidCreatedAtForCreate()
       && request.resource.data.comments is list
       && request.resource.data.comments.size() == 0
       && request.resource.data.likes is int
@@ -39,25 +111,21 @@ service cloud.firestore {
       && isValidMissIdx();
   }
 
-  // missIdx（フェーズ2）：悔やまれる局面の指定。任意項目。
-  // ・キーがない場合     → 従来どおり（最終局面から表示）で許可
-  // ・キーがある場合     → int かつ 0 <= missIdx < history.size()（missIdx+1 手目がミスの手）
-  function isValidMissIdx() {
-    return !request.resource.data.keys().hasAny(['missIdx'])
-      || (request.resource.data.missIdx is int
-          && request.resource.data.missIdx >= 0
-          && request.resource.data.missIdx < request.resource.data.history.size());
-  }
-
+  // ============================================================
+  // 投稿の更新（update）
+  // 既存投稿（authorUid なし・createdAt が数値）の更新は従来どおり可能。
+  // ============================================================
   function isValidPostUpdate() {
-    // 注意（フェーズ2）：更新で触れるキーは comments / likes / helpful のみ。
-    // missIdx は任意キーだが、affectedKeys().hasOnly() の制限により、作成後の追加・変更は自動的に拒否される。
-    // 旧投稿には missIdx が存在しないため、ここで missIdx を直接比較するのは避ける（比較エラーを防ぐため）。
-    return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'comments',
-        'likes',
-        'helpful'
-      ])
+    // 匿名認証必須（フェーズ3A-1）
+    return isSignedIn()
+      // 変更できるキーは comments / likes / helpful のみ。
+      // missIdx は任意キーだが、この制限により作成後の追加・変更は自動的に拒否される。
+      // さらに本文 / カテゴリ / 棋譜 / createdAt の内容が不変であることを下段で確認。
+      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'comments',
+          'likes',
+          'helpful'
+        ])
       && request.resource.data.text == resource.data.text
       && request.resource.data.category == resource.data.category
       && request.resource.data.history == resource.data.history
@@ -65,19 +133,5 @@ service cloud.firestore {
       && isValidCommentsUpdate()
       && isValidReactionUpdate('likes')
       && isValidReactionUpdate('helpful');
-  }
-
-  function isValidCommentsUpdate() {
-    return request.resource.data.comments is list
-      && request.resource.data.comments.size() <= 200
-      && request.resource.data.comments.size() >= resource.data.comments.size()
-      && request.resource.data.comments.size() <= resource.data.comments.size() + 1;
-  }
-
-  function isValidReactionUpdate(field) {
-    return request.resource.data[field] is int
-      && request.resource.data[field] >= resource.data[field]
-      && request.resource.data[field] <= resource.data[field] + 1
-      && request.resource.data[field] <= 100000;
   }
 }

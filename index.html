@@ -301,8 +301,12 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
     import { getFirestore, collection, addDoc, query, orderBy, limit, startAfter,
-             getDocs, onSnapshot, updateDoc, doc, arrayUnion, getDoc, increment }
+             getDocs, onSnapshot, updateDoc, doc, arrayUnion, getDoc, increment, serverTimestamp }
         from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged }
+        from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+    import { initializeAppCheck, ReCaptchaV3Provider }
+        from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app-check.js";
 
     const firebaseConfig = {
         apiKey: "AIzaSyCM4C1GzADf1t9MCcnoti8QfxdADr9_rkk",
@@ -315,6 +319,37 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
+
+    // ===== App Check（フェーズ3A-2） =====
+    // サイトキーはプレースホルダー。オーナーが実キーに差し替えるまで SDK は初期化しない。
+    // 強制 / 監視の切替は Firebase コンソール側の操作であり、コードはどちらでも同じで動く。
+    const RECAPTCHA_SITE_KEY = "RECAPTCHA_SITE_KEY_PLACEHOLDER";
+    (function initAppCheck() {
+        if (RECAPTCHA_SITE_KEY === "RECAPTCHA_SITE_KEY_PLACEHOLDER") return;
+        // localhost / 127.0.0.1 ではデバッグトークンを使えるようにする（本番では有効にしない）
+        const host = location.hostname;
+        if (host === "localhost" || host === "127.0.0.1") {
+            self.FIREBASE_APPCHECK_DEBUG_TOKEN = true; // デバッグトークンを開発者コンソールに出す
+        }
+        initializeAppCheck(app, {
+            provider: new ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),
+            isTokenAutoRefreshEnabled: true
+        });
+    })();
+
+    // ===== 匿名認証（フェーズ3A-1） =====
+    // 起動時に匿名サインインする。失敗してもアプリは壊さず、読み取りは続行。
+    // 書き込み（投稿・コメント・リアクション）のときだけ未認証なら案内して無効化する。
+    const auth = getAuth(app);
+    // クラシックスクリプト側からも参照できる共有状態
+    window.appAuthState = { uid: null, ready: false };
+    signInAnonymously(auth).catch(() => {
+        // サインイン失敗。ここでは通知しない（操作時に案内する）
+    });
+    onAuthStateChanged(auth, (user) => {
+        window.appAuthState.uid = user ? user.uid : null;
+        window.appAuthState.ready = true;
+    });
 
     window.db = db;
     window.addDoc = addDoc;
@@ -361,7 +396,8 @@
         if (currentFilter.sort === 'comments') {
             filtered.sort((a, b) => (b.comments?.length || 0) - (a.comments?.length || 0));
         } else {
-            filtered.sort((a, b) => b.createdAt - a.createdAt);
+            // createdAt は数値（旧）/Timestamp(新)/確定前null の混在。toMillis ヘルパーで比較する（フェーズ3A-3）
+            filtered.sort((a, b) => window.toMillis(b.createdAt) - window.toMillis(a.createdAt));
         }
         renderList(filtered, append);
     };
@@ -383,6 +419,8 @@
 
     // リアクション送信（バグ修正済み：二重カウント防止）
     window.sendReaction = async (postId, type) => {
+        // 匿名認証ガード（フェーズ3A-1）：未認証のときは案内して書き込みを行わない
+        if (!window.appAuthState || !window.appAuthState.uid) { showToast(t('auth_required'), 'error'); return; }
         const key = `reacted_${type}_${postId}`;
         if (localStorage.getItem(key)) { 
             showToast(t('already_reacted'), 'error'); 
@@ -512,6 +550,8 @@ const TR = {
         help_react_title:  'リアクション',
         help_react_1:      '👍 いいね・💡 参考になった ボタンで投稿に反応できます（1人1回）。',
         analytics_notice:  'アクセス解析（Google Analytics）を利用しています',
+        // フェーズ3A：匿名認証
+        auth_required:     '投稿・コメントには認証が必要です。しばらく待ってからもう一度お試しください',
         // フェーズ2：ミス局面（missIdx）関連の表示
         miss_spec_check:   '悔やまれる局面を指定する',
         miss_spec_clear:   '指定を解除する',
@@ -591,6 +631,8 @@ const TR = {
         help_react_title:  'Reactions',
         help_react_1:      'Use 👍 Like and 💡 Helpful to react to posts (once per user).',
         analytics_notice:  'This site uses Google Analytics (analytics)',
+        // フェーズ3A：匿名認証
+        auth_required:     'Sign-in is required to post or comment. Please try again shortly.',
         // フェーズ2：ミス局面（missIdx）関連の表示
         miss_spec_check:   'Mark the position before your mistake',
         miss_spec_clear:   'Clear selection',
@@ -706,6 +748,20 @@ let boardState = Array(81).fill(null);
 let boardHistory = [];
 const letters = ["A","B","C","D","E","F","G","H","J"];
 let viewerStates = {};
+
+// ===== createdAt の共通変換（フェーズ3A-3） =====
+// 旧データ＝数値（Date.now()）、新データ＝Firestore Timestamp（serverTimestamp()）、
+// 投稿直後のローカル確定前スナップショット＝null。すべて1つのヘルパーに集約する。
+function toMillis(v) {
+    if (v === null || v === undefined) return Date.now(); // まだサーバー時刻が確定していない場合は現在時刻扱い
+    if (typeof v === "number") return v;
+    if (typeof v?.toMillis === "function") return v.toMillis();
+    if (typeof v === "object" && typeof v.seconds === "number") {
+        return v.seconds * 1000 + Math.floor((v.nanoseconds || 0) / 1e6);
+    }
+    return Date.now();
+}
+window.toMillis = toMillis; // 一覧の比較など、モジュール側からも使えるようにする
 
 function getAdj(i) {
     let res = [], x = i % 9, y = Math.floor(i / 9);
@@ -935,13 +991,21 @@ document.getElementById("save-btn").onclick = async () => {
     try {
         const postData = {
             text: txt, category: cat, history: moves,
-            createdAt: Date.now(), comments: [],
+            createdAt: serverTimestamp(), // サーバー時刻（フェーズ3A-3）。旧データの数値との混在は表示側で対処
+            comments: [],
             likes: 0, helpful: 0   // リアクション初期値
         };
         // フェーズ2：チェックがオンで範囲が有効なときだけ missIdx を保存（オフなら保存しない＝従来どおり）
         if (missSpecActive && moves.length >= 1 && missIdxPost >= 0 && missIdxPost < moves.length) {
             postData.missIdx = missIdxPost;
         }
+        // 匿名認証（フェーズ3A-1）：未認証なら送らずに案内する（読み取りには影響しない）
+        if (!window.appAuthState || !window.appAuthState.uid) {
+            showToast(t('auth_required'), 'error');
+            document.getElementById("save-btn").disabled = false;
+            return;
+        }
+        postData.authorUid = window.appAuthState.uid; // 表示には使わない。ルールで本人一致を担保
         await window.addDoc(window.collection(window.db, "posts"), postData);
         trackEvent('post_created', { category: cat, has_miss: ('missIdx' in postData) }); // 解析：カテゴリと指定有無のみ（本文は送らない）
         showToast(t('posted'), 'success');
@@ -959,6 +1023,8 @@ document.getElementById("save-btn").onclick = async () => {
 
 // ===== コメント =====
 window.sendComment = async (postId) => {
+    // 匿名認証ガード（フェーズ3A-1）：未認証のときは案内して送らない
+    if (!window.appAuthState || !window.appAuthState.uid) { showToast(t('auth_required'), 'error'); return; }
     const input = document.getElementById("in-" + postId);
     const val = input.value.trim();
     if(!val) { showToast(t('comment_empty'), 'error'); return; }
