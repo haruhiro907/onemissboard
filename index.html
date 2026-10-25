@@ -301,7 +301,7 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
     import { getFirestore, collection, addDoc, query, orderBy, limit, startAfter,
-             getDocs, onSnapshot, updateDoc, doc, arrayUnion, getDoc, increment, serverTimestamp }
+             getDocs, onSnapshot, updateDoc, doc, arrayUnion, getDoc, increment, serverTimestamp, writeBatch }
         from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
     import { getAuth, signInAnonymously, onAuthStateChanged }
         from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
@@ -417,7 +417,7 @@
 
     window.setSort = (val) => { currentFilter.sort = val; applyFilters(); };
 
-    // リアクション送信（バグ修正済み：二重カウント防止）
+    // リアクション送信（1人1回をサーバーで担保：フェーズ3B-2）
     window.sendReaction = async (postId, type) => {
         // 匿名認証ガード（フェーズ3A-1）：未認証のときは案内して書き込みを行わない
         if (!window.appAuthState || !window.appAuthState.uid) { showToast(t('auth_required'), 'error'); return; }
@@ -431,16 +431,27 @@
         if (btn) btn.style.pointerEvents = 'none'; // 重複クリック防止
 
         try {
-            await updateDoc(doc(db, "posts", postId), { [type]: increment(1) });
+            // 押下記録（reactions/{uid}_{type}）と posts の +1 を同一バッチでコミット。
+            // ルールは「記録の新規作成とセットのみ +1 許可」なので、2回押し・改竄は両方ともサーバーで拒否される。
+            const uid = window.appAuthState.uid;
+            const rtype = (type === 'likes') ? 'like' : 'helpful'; // 記録側の type 値
+            const batch = writeBatch(db);
+            batch.set(
+                doc(db, "posts", postId, "reactions", uid + "_" + rtype),
+                { uid: uid, type: rtype, createdAt: serverTimestamp() }
+            );
+            batch.update(doc(db, "posts", postId), { [type]: increment(1) });
+            await batch.commit();
             localStorage.setItem(key, "1");
-            
+
             if (btn) btn.classList.add("reacted");
             trackEvent('reaction', { type: type }); // 解析（フェーズ1）：likes/helpful の種別のみ
             showToast(t('thanks_reaction'), 'success');
             // 数値は onSnapshot の再描画により自動更新されるため手動加算は不要
         } catch(e) { 
+            // バッチが拒否された場合（すでに本人の記録がある等）は押下済み扱いで静かに案内する
             if (btn) btn.style.pointerEvents = 'auto';
-            showToast(t('error_generic'), 'error'); 
+            showToast(t('already_reacted'), 'error'); 
         }
     };
 

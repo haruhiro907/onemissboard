@@ -1,14 +1,17 @@
 rules_version = '2';
 
 // ============================================================
-// Firestore セキュリティルール（フェーズ3A / 3B-1）
+// Firestore セキュリティルール（フェーズ3A / 3B）
 // 方針：
 // ・posts 以外（サブコレクションを含む未定義ルート）は既定で拒否
 // ・create（新規投稿）：匿名認証必須 + 自分の uid を authorUid に保存
 //                       + createdAt はサーバー時刻（serverTimestamp()）
 // ・update：匿名認証必須。追加・変更できるキーは comments / likes / helpful のみ
 //   ・comments は「追記専用」（フェーズ3B-1）。既存要素の書き換え・削除・並べ替えは不可
+//   ・likes / helpful の +1 は、同じバッチで本人のリアクション記録
+//     posts/{id}/reactions/{uid}_like|helpful の「新規作成」とセットのみ許可（フェーズ3B-2）
 // ・旧データ互換：authorUid / Timestamp を持たない旧投稿の読み取り・更新は従来どおり許可
+//   （リアクションは1人1回になったため、旧来の二重押下データはそのまま残置。移行はしない）
 // ・delete：許可しない
 // ・missIdx（フェーズ2）：任意キー。ある場合は 0 <= missIdx < history.size()
 // ============================================================
@@ -21,9 +24,73 @@ service cloud.firestore {
       allow read: if true;
 
       allow create: if isValidNewPost();
-      allow update: if isValidPostUpdate();
+      // update は「共通検査」＋「リアクションは同時作成必須」（フェーズ3B-2）
+      allow update: if postsUpdateChecks();
       // 削除は許可しない（スパム投稿の即時消去等は管理者用の別手段を検討）
       allow delete: if false;
+
+      // ========== リアクション記録（フェーズ3B-2） ==========
+      // 1人1回を担保する記録。reactionId は「{uid}_like」または「{uid}_helpful」のみ。
+      match /reactions/{reactionId} {
+        // 本人による1回のみの作成を許可
+        allow create: if isValidReactionDoc(reactionId);
+        // 更新・削除は禁止（押した記録は残す。消し忘れ・改竄を防ぐ）
+        allow update: if false;
+        allow delete: if false;
+        // 一覧や他人のリアクションの列挙は禁止（読み取り回数の抑制）
+        allow list: if false;
+        // 直接 get は自分の記録（{uid}_like / {uid}_helpful）のみ許可
+        allow get: if isSignedIn()
+          && (reactionId == request.auth.uid + '_like'
+           || reactionId == request.auth.uid + '_helpful');
+      }
+
+      // ※ 以下の関数は posts マッチ内に置くことで $(postId) / $(database) をパス組み立てに使える。
+      //   共通検査関数（下の documents スコープ）も呼び出せる。
+
+      // 投稿の update の入口：共通検査 ＋ likes/helpful は「同時の記録作成」が必須
+      function postsUpdateChecks() {
+        return isValidPostUpdate()     // comments（追記専用）・本文不変など（フェーズ3B-1）
+          && isValidLikesUpdate()      // likes の +1 と本人記録の作成の同時性（フェーズ3B-2）
+          && isValidHelpfulUpdate();   // helpful も同様
+      }
+
+      // likes：量は既存どおり（+5 のような飛び越し・取り消しは不可）。
+      // キーが変化しない更新（コメント追記のみ等）は記録作成を要求しない。
+      // カウントが増える更新は、同じバッチで本人の記録が「新規作成される」こと。
+      function isValidLikesUpdate() {
+        return isValidReactionAmount('likes')
+          && (request.resource.data.likes == resource.data.likes
+              || isValidReactionBatch('like'));
+      }
+
+      function isValidHelpfulUpdate() {
+        return isValidReactionAmount('helpful')
+          && (request.resource.data.helpful == resource.data.helpful
+              || isValidReactionBatch('helpful'));
+      }
+
+      // 「そのバッチで新規作成される」こと＝作成後は存在・作成前は不存在
+      // （increment だけ送っても、過去の記録のある人にも、ここで拒否される）
+      function isValidReactionBatch(type) {
+        return existsAfter(/databases/$(database)/documents/posts/$(postId)/reactions/$(request.auth.uid + '_' + type))
+          && !exists(/databases/$(database)/documents/posts/$(postId)/reactions/$(request.auth.uid + '_' + type));
+      }
+
+      // リアクション記録文書の内容検査（作成時）
+      function isValidReactionDoc(id) {
+        return isSignedIn()
+          // キーは uid / type / createdAt のみ
+          && request.resource.data.keys().hasOnly(['uid', 'type', 'createdAt'])
+          && request.resource.data.uid is string
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.type in ['like', 'helpful']
+          && request.resource.data.createdAt == request.time
+          // ID は「本人uid + '_' + type」との完全一致
+          && id == request.auth.uid + '_' + request.resource.data.type
+          // 親の投稿が存在すること
+          && exists(/databases/$(database)/documents/posts/$(postId));
+      }
     }
   }
 
@@ -91,8 +158,11 @@ service cloud.firestore {
       && request.resource.data.comments[resource.data.comments.size()].size() <= 500;
   }
 
-  // likes / helpful の増加のみ許可（取り消し・一気書き換えは不可）
-  function isValidReactionUpdate(field) {
+  // ============================================================
+  // likes / helpful の「量」の検査（既存の +1 制限・上限10万を維持）
+  // 「同時に本人の記録を作ること」は posts マッチ内の関数で検査（フェーズ3B-2）
+  // ============================================================
+  function isValidReactionAmount(field) {
     return request.resource.data[field] is int
       && request.resource.data[field] >= resource.data[field]
       && request.resource.data[field] <= resource.data[field] + 1
@@ -155,8 +225,8 @@ service cloud.firestore {
       && request.resource.data.category == resource.data.category
       && request.resource.data.history == resource.data.history
       && request.resource.data.createdAt == resource.data.createdAt
-      && isValidCommentsUpdate()
-      && isValidReactionUpdate('likes')
-      && isValidReactionUpdate('helpful');
+      && isValidCommentsUpdate();
+      // ※ likes / helpful の検査は posts マッチ内の postsUpdateChecks（isValidLikesUpdate /
+      //    isValidHelpfulUpdate）で行う。カウント増加には本人の記録の同時作成が必須（フェーズ3B-2）。
   }
 }
