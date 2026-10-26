@@ -76,14 +76,14 @@ SGF形式の棋譜読み込み、盤面からの手入力、Firestoreへの投�
   - Cloud Firestore
   - Firebase Authentication（匿名認証）
   - Firebase App Check（reCAPTCHA v3。サイトキー未設定の間はSDKを初期化しない）
-- Netlify向けリダイレクト設定（注：ファイル名の都合で現状は未適用。詳細は下記）
+- Netlify向けリダイレクト設定（`_redirects`：`/tools/` 以下を404で公開遮断。詳細は下記）
 
 ## ファイル構成
 
 ```text
 .
 ├── _headers          （Netlify のセキュリティヘッダ。CSP は Report-Only）
-├── _redirects.txt
+├── _redirects        （/tools/ 以下の公開を遮断するための設定）
 ├── firestore.rules
 ├── index.html
 ├── README.md
@@ -95,7 +95,7 @@ SGF形式の棋譜読み込み、盤面からの手入力、Firestoreへの投�
 
 `firestore.rules` はFirebaseコンソールに反映するための推奨Firestoreセキュリティルール例です。
 
-`_redirects.txt` について：Netlify のリダイレクト設定は拡張子なしの `_redirects` というファイル名で読み込まれます。拡張子付きの `_redirects.txt` は読み込まれず、**現在は未適用**です（この設定の狙いは「任意のパスを index.html に 200 で返す」SPAフォールバック）。
+`_redirects` について：Netlify のリダイレクト設定は拡張子なしの `_redirects` というファイル名で読み込まれます。内容は `/tools/*  /404.html  404!` のみで、**開発用の `tools/` ディレクトリ（ルールテスト等）をサイトとして公開しない**ための遮断設定です。SPAフォールバック（`/*` → `index.html` 200）は入れていません。
 
 ## Firestoreデータ構造
 
