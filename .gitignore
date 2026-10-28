@@ -1,5 +1,7 @@
 # ルールテストは静的サイトのビルド対象外。依存物はコミットしない。（フェーズ3B）
 tools/rules-test/node_modules/
+# 依存物はリポジトリ直下にも置かない（誤って npm install した場合の保険）
+node_modules/
 tools/rules-test/firestore.rules.tmp
 tools/rules-test/results.txt
 tools/rules-test/firebase-debug.log
