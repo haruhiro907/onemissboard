@@ -358,6 +358,8 @@
     window.doc = doc;
     window.arrayUnion = arrayUnion;
     window.increment = increment;
+    // クラシックスクリプト（本体）の投稿処理から使うため公開（投稿の createdAt で使用）
+    window.serverTimestamp = serverTimestamp;
 
     const PAGE_SIZE = 10;
     let allPosts = [];
@@ -1005,7 +1007,7 @@ document.getElementById("save-btn").onclick = async () => {
     try {
         const postData = {
             text: txt, category: cat, history: moves,
-            createdAt: serverTimestamp(), // サーバー時刻（フェーズ3A-3）。旧データの数値との混在は表示側で対処
+            createdAt: window.serverTimestamp(), // サーバー時刻（フェーズ3A-3）。旧データの数値との混在は表示側で対処
             comments: [],
             likes: 0, helpful: 0   // リアクション初期値
         };
