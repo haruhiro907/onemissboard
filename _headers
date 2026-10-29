@@ -1,0 +1,16 @@
+# セキュリティヘッダ（フェーズ1 / フェーズ3A で更新）
+# ・CSP は Report-Only のみ。違反はブラウザのコンソールに表示されるだけで遮断しない。
+#   強制（Report-Only を外す）はオーナーが違反レポートを確認した後に行う。
+# ・許可ドメインは実コードの参照内容に基づく：
+#     script: gstatic.com(Firebase SDK v12.11.0) / googletagmanager.com(gtag.js) / google.com(将来のApp Check用reCAPTCHA)
+#     connect: firestore.googleapis.com / firebaseinstallations.googleapis.com / firebaselogging-pa.googleapis.com
+#              / firebaseappcheck.googleapis.com(App Check) / identitytoolkit.googleapis.com(匿名認証)
+#              / securetoken.googleapis.com(トークン更新) / wss://firebaseio.com(Firestore)
+#              / googletagmanager・google-analytics・analytics.google(GA4)
+#     frame:   www.google.com(reCAPTCHA)
+# ※ index.html にはインラインの <script type="module"> と <script> があるため 'unsafe-inline' が必要。
+#   強制移行時にハッシュ('sha256-...')へ絞り込むことを推奨。
+/*
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googletagmanager.com https://www.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.googletagmanager.com https://*.google-analytics.com; connect-src 'self' https://firestore.googleapis.com https://firebaseinstallations.googleapis.com https://firebaselogging-pa.googleapis.com https://firebaseappcheck.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com wss://*.firebaseio.com https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com; frame-src https://www.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

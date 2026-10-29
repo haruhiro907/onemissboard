@@ -1,0 +1,14 @@
+{
+  "name": "onemissboard-rules-test",
+  "private": true,
+  "description": "firestore.rules の結合テスト（Firestore Emulator + rules-unit-testing）",
+  "type": "module",
+  "scripts": {
+    "test": "node -e \"require('fs').copyFileSync('../../firestore.rules','firestore.rules.tmp')\" && npx firebase-tools emulators:exec --only firestore --project demo-rules-test \"node test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.0",
+    "firebase": "^11.0.0",
+    "firebase-tools": "^14.0.0"
+  }
+}

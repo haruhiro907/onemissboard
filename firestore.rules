@@ -1,26 +1,194 @@
 rules_version = '2';
 
+// ============================================================
+// Firestore セキュリティルール（フェーズ3A / 3B）
+// 方針：
+// ・posts 以外（サブコレクションを含む未定義ルート）は既定で拒否
+// ・create（新規投稿）：匿名認証必須 + 自分の uid を authorUid に保存
+//                       + createdAt はサーバー時刻（serverTimestamp()）
+// ・update：匿名認証必須。追加・変更できるキーは comments / likes / helpful のみ
+//   ・comments は「追記専用」（フェーズ3B-1）。既存要素の書き換え・削除・並べ替えは不可
+//   ・likes / helpful の +1 は、同じバッチで本人のリアクション記録
+//     posts/{id}/reactions/{uid}_like|helpful の「新規作成」とセットのみ許可（フェーズ3B-2）
+// ・旧データ互換：authorUid / Timestamp を持たない旧投稿の読み取り・更新は従来どおり許可
+//   （リアクションは同じ匿名IDにつき1回のため、旧来の「複数回押した記録」データはそのまま残置。移行はしない）
+// ・delete：許可しない
+// ・missIdx（フェーズ2）：任意キー。ある場合は 0 <= missIdx < history.size()
+// ============================================================
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ---------- 投稿コレクション ----------
     match /posts/{postId} {
+      // 読み取りは全員に許可（公開掲示板）
       allow read: if true;
 
       allow create: if isValidNewPost();
-      allow update: if isValidPostUpdate();
+      // update は「共通検査」＋「リアクションは同時作成必須」（フェーズ3B-2）
+      allow update: if postsUpdateChecks();
+      // 削除は許可しない（スパム投稿の即時消去等は管理者用の別手段を検討）
       allow delete: if false;
+
+      // ========== リアクション記録（フェーズ3B-2） ==========
+      // 同じ匿名IDにつき1回を担保する記録。概要：匿名IDはブラウザデータを消すと変わるため「人」ではなく「匿名ID」単位。
+      // reactionId は「{uid}_like」または「{uid}_helpful」のみ。
+      match /reactions/{reactionId} {
+        // 本人による1回のみの作成を許可
+        allow create: if isValidReactionDoc(reactionId);
+        // 更新・削除は禁止（押した記録は残す。消し忘れ・改竄を防ぐ）
+        allow update: if false;
+        allow delete: if false;
+        // 一覧や他人のリアクションの列挙は禁止（読み取り回数の抑制）
+        allow list: if false;
+        // 直接 get は自分の記録（{uid}_like / {uid}_helpful）のみ許可
+        allow get: if isSignedIn()
+          && (reactionId == request.auth.uid + '_like'
+           || reactionId == request.auth.uid + '_helpful');
+      }
+
+      // ※ 以下の関数は posts マッチ内に置くことで $(postId) / $(database) をパス組み立てに使える。
+      //   共通検査関数（下の documents スコープ）も呼び出せる。
+
+      // 投稿の update の入口：共通検査 ＋ likes/helpful は「同時の記録作成」が必須
+      function postsUpdateChecks() {
+        return isValidPostUpdate()     // comments（追記専用）・本文不変など（フェーズ3B-1）
+          && isValidLikesUpdate()      // likes の +1 と本人記録の作成の同時性（フェーズ3B-2）
+          && isValidHelpfulUpdate();   // helpful も同様
+      }
+
+      // likes：量は既存どおり（+5 のような飛び越し・取り消しは不可）。
+      // キーが変化しない更新（コメント追記のみ等）は記録作成を要求しない。
+      // カウントが増える更新は、同じバッチで本人の記録が「新規作成される」こと。
+      function isValidLikesUpdate() {
+        return isValidReactionAmount('likes')
+          && (request.resource.data.likes == resource.data.likes
+              || isValidReactionBatch('like'));
+      }
+
+      function isValidHelpfulUpdate() {
+        return isValidReactionAmount('helpful')
+          && (request.resource.data.helpful == resource.data.helpful
+              || isValidReactionBatch('helpful'));
+      }
+
+      // 「そのバッチで新規作成される」こと＝作成後は存在・作成前は不存在
+      // （increment だけ送っても、過去の記録のある人にも、ここで拒否される）
+      function isValidReactionBatch(type) {
+        return existsAfter(/databases/$(database)/documents/posts/$(postId)/reactions/$(request.auth.uid + '_' + type))
+          && !exists(/databases/$(database)/documents/posts/$(postId)/reactions/$(request.auth.uid + '_' + type));
+      }
+
+      // リアクション記録文書の内容検査（作成時）
+      function isValidReactionDoc(id) {
+        return isSignedIn()
+          // キーは uid / type / createdAt のみ
+          && request.resource.data.keys().hasOnly(['uid', 'type', 'createdAt'])
+          && request.resource.data.uid is string
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.type in ['like', 'helpful']
+          && request.resource.data.createdAt == request.time
+          // ID は「本人uid + '_' + type」との完全一致
+          && id == request.auth.uid + '_' + request.resource.data.type
+          // 親の投稿が存在すること
+          && exists(/databases/$(database)/documents/posts/$(postId));
+      }
     }
   }
 
+  // ============================================================
+  // 共通の検査関数
+  // ============================================================
+
+  // 匿名認証が通っていること（フェーズ3A-1）
+  function isSignedIn() {
+    return request.auth != null;
+  }
+
+  // 投稿者の一致検査：authorUid は string、かつ自分自身の uid と一致（フェーズ3A-1）
+  function isValidAuthorUid() {
+    return isSignedIn()
+      && request.resource.data.authorUid is string
+      && request.resource.data.authorUid == request.auth.uid;
+  }
+
+  // createdAt はサーバー時刻でなければならない（フェーズ3A-3）。
+  // クライアント時計の Date.now()（旧実装）は新規作成では許可しない。
+  function isValidCreatedAtForCreate() {
+    return request.resource.data.createdAt == request.time;
+  }
+
+  // missIdx（フェーズ2）：悔やまれる局面の指定。任意項目。
+  // ・キーがない場合 → 従来どおり（最終局面から表示）で許可
+  // ・キーがある場合 → int かつ 0 <= missIdx < history.size()（missIdx+1 手目がミスの手）
+  function isValidMissIdx() {
+    return !request.resource.data.keys().hasAny(['missIdx'])
+      || (request.resource.data.missIdx is int
+          && request.resource.data.missIdx >= 0
+          && request.resource.data.missIdx < request.resource.data.history.size());
+  }
+
+  // ============================================================
+  // comments の検査（フェーズ3B-1：追記専用）
+  // ・コメントを変えない更新（リアクションのみ）＝ comments が完全に同一
+  // ・1件追加の更新＝ 既存の要素はすべて同一（先頭からの一致）で、追加分は文字列で1〜500文字、全体200件以下
+  // ・既存コメントの書き換え・削除・並べ替え・複数件追加は拒否
+  // ※「先頭からの一致」の検証には、リストのスライス（newC[0:oldC.size()] == oldC）と同じ結果を
+  //    公式メソッド concat で実現する方式を使う：
+  //    「旧リストに新たな末尾1件を連結したものが新リストと完全一致」なら、
+  //    既存部分の変更有無まで含めて厳密に追記専用であることを保証できる。
+  // ============================================================
+  function isValidCommentsUpdate() {
+    return (request.resource.data.comments == resource.data.comments)
+      || isValidCommentsAppend();
+  }
+
+  function isValidCommentsAppend() {
+    return request.resource.data.comments is list
+      // 件数は「既存 +1」のときだけ追記とみなす
+      && request.resource.data.comments.size() == resource.data.comments.size() + 1
+      && request.resource.data.comments.size() <= 200
+      // 追加される1件は文字列、かつ1文字以上500文字以下
+      && isValidNewComment()
+      // 既存要素の書き換え・入れ替え・削除を不可にする（旧リスト＋新末尾1件 ＝ 新リスト）
+      && request.resource.data.comments == resource.data.comments.concat([request.resource.data.comments[resource.data.comments.size()]]);
+  }
+
+  function isValidNewComment() {
+    return request.resource.data.comments[resource.data.comments.size()] is string
+      && request.resource.data.comments[resource.data.comments.size()].size() >= 1
+      && request.resource.data.comments[resource.data.comments.size()].size() <= 500;
+  }
+
+  // ============================================================
+  // likes / helpful の「量」の検査（既存の +1 制限・上限10万を維持）
+  // 「同時に本人の記録を作ること」は posts マッチ内の関数で検査（フェーズ3B-2）
+  // ============================================================
+  function isValidReactionAmount(field) {
+    return request.resource.data[field] is int
+      && request.resource.data[field] >= resource.data[field]
+      && request.resource.data[field] <= resource.data[field] + 1
+      && request.resource.data[field] <= 100000;
+  }
+
+  // ============================================================
+  // 新規投稿（create）
+  // ============================================================
   function isValidNewPost() {
-    return request.resource.data.keys().hasOnly([
-        'text',
-        'category',
-        'history',
-        'createdAt',
-        'comments',
-        'likes',
-        'helpful'
-      ])
+    // 匿名認証必須（フェーズ3A-1）。失敗時はクライアント側で案内するので、ここでも二重に拒否する。
+    return isSignedIn()
+      && isValidAuthorUid()
+      // 書き込み可能なキーは下記に限定（未知キーは不可）
+      && request.resource.data.keys().hasOnly([
+          'text',
+          'category',
+          'history',
+          'missIdx',
+          'createdAt',
+          'comments',
+          'likes',
+          'helpful',
+          'authorUid'
+        ])
       && request.resource.data.text is string
       && request.resource.data.text.size() > 0
       && request.resource.data.text.size() <= 1000
@@ -28,41 +196,38 @@ service cloud.firestore {
       && request.resource.data.history is list
       && request.resource.data.history.size() > 0
       && request.resource.data.history.size() <= 200
-      && request.resource.data.createdAt is int
+      // createdAt はサーバー時刻のみ許可（フェーズ3A-3）
+      && isValidCreatedAtForCreate()
       && request.resource.data.comments is list
       && request.resource.data.comments.size() == 0
       && request.resource.data.likes is int
       && request.resource.data.likes == 0
       && request.resource.data.helpful is int
-      && request.resource.data.helpful == 0;
+      && request.resource.data.helpful == 0
+      && isValidMissIdx();
   }
 
+  // ============================================================
+  // 投稿の更新（update）
+  // 既存投稿（authorUid なし・createdAt が数値）の更新は従来どおり可能。
+  // ============================================================
   function isValidPostUpdate() {
-    return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'comments',
-        'likes',
-        'helpful'
-      ])
+    // 匿名認証必須（フェーズ3A-1）
+    return isSignedIn()
+      // 変更できるキーは comments / likes / helpful のみ。
+      // missIdx は任意キーだが、この制限により作成後の追加・変更は自動的に拒否される。
+      // さらに本文 / カテゴリ / 棋譜 / createdAt の内容が不変であることを下段で確認。
+      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'comments',
+          'likes',
+          'helpful'
+        ])
       && request.resource.data.text == resource.data.text
       && request.resource.data.category == resource.data.category
       && request.resource.data.history == resource.data.history
       && request.resource.data.createdAt == resource.data.createdAt
-      && isValidCommentsUpdate()
-      && isValidReactionUpdate('likes')
-      && isValidReactionUpdate('helpful');
-  }
-
-  function isValidCommentsUpdate() {
-    return request.resource.data.comments is list
-      && request.resource.data.comments.size() <= 200
-      && request.resource.data.comments.size() >= resource.data.comments.size()
-      && request.resource.data.comments.size() <= resource.data.comments.size() + 1;
-  }
-
-  function isValidReactionUpdate(field) {
-    return request.resource.data[field] is int
-      && request.resource.data[field] >= resource.data[field]
-      && request.resource.data[field] <= resource.data[field] + 1
-      && request.resource.data[field] <= 100000;
+      && isValidCommentsUpdate();
+      // ※ likes / helpful の検査は posts マッチ内の postsUpdateChecks（isValidLikesUpdate /
+      //    isValidHelpfulUpdate）で行う。カウント増加には本人の記録の同時作成が必須（フェーズ3B-2）。
   }
 }

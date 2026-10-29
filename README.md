@@ -10,7 +10,9 @@ SGF形式の棋譜読み込み、盤面からの手入力、Firestoreへの投�
 - SGFを貼り付けて対局手順を再現できます。
 - 盤面をタップして黒白交互に着手し、棋譜を作成できます。
 - 投稿された棋譜は一覧で確認でき、1手ずつ再生・巻き戻しできます。
+- 「悔やまれる局面（ミスの直前の局面）」から再生できる投稿が作れます。
 - Firebase Cloud Firestoreを利用して投稿、コメント、リアクションを保存します。
+- Firebase Authentication（匿名認証）による投稿者識別と、App Check の導入準備が済んでいます。
 
 ## 主な機能
 
@@ -72,13 +74,16 @@ SGF形式の棋譜読み込み、盤面からの手入力、Firestoreへの投�
 - Firebase
   - Firebase App
   - Cloud Firestore
-- Netlify向けリダイレクト設定
+  - Firebase Authentication（匿名認証）
+  - Firebase App Check（reCAPTCHA v3。サイトキー未設定の間はSDKを初期化しない）
+- Netlify向けリダイレクト設定（`_redirects`：`/tools/` 以下を404で公開遮断。詳細は下記）
 
 ## ファイル構成
 
 ```text
 .
-├── _redirects.txt
+├── _headers          （Netlify のセキュリティヘッダ。CSP は Report-Only）
+├── _redirects        （/tools/ 以下の公開を遮断するための設定）
 ├── firestore.rules
 ├── index.html
 ├── README.md
@@ -90,6 +95,8 @@ SGF形式の棋譜読み込み、盤面からの手入力、Firestoreへの投�
 
 `firestore.rules` はFirebaseコンソールに反映するための推奨Firestoreセキュリティルール例です。
 
+`_redirects` について：Netlify のリダイレクト設定は拡張子なしの `_redirects` というファイル名で読み込まれます。内容は `/tools/*  /404.html  404!` のみで、**開発用の `tools/` ディレクトリ（ルールテスト等）をサイトとして公開しない**ための遮断設定です。SPAフォールバック（`/*` → `index.html` 200）は入れていません。
+
 ## Firestoreデータ構造
 
 現在の実装では、`posts` コレクションに投稿ドキュメントを保存します。
@@ -98,7 +105,7 @@ SGF形式の棋譜読み込み、盤面からの手入力、Firestoreへの投�
 posts/{postId}
 ```
 
-投稿ドキュメントの例:
+投稿ドキュメントの例（新規投稿）:
 
 ```json
 {
@@ -108,7 +115,9 @@ posts/{postId}
     { "idx": 40, "color": "black" },
     { "idx": 30, "color": "white" }
   ],
-  "createdAt": 1791388800000,
+  "authorUid": "匿名認証のuid（文字列。表示には使わない）",
+  "missIdx": 1,
+  "createdAt": "サーバー時刻（serverTimestamp による Firestore Timestamp）",
   "comments": [
     "中央を厚く見る手がよさそうです。"
   ],
@@ -119,13 +128,15 @@ posts/{postId}
 
 ### フィールド
 
-- `text`: 投稿本文。必須。
+- `text`: 投稿本文。必須。1〜1000文字。
 - `category`: `検討`、`質問`、`雑談` のいずれか。
-- `history`: 着手履歴の配列。各要素は `idx` と `color` を持ちます。
+- `history`: 着手履歴の配列。各要素は `idx` と `color` を持ちます（1〜200要素）。
 - `history[].idx`: 0から80までの交点番号。
 - `history[].color`: `black` または `white`。
-- `createdAt`: 投稿時刻。現在はクライアント側の `Date.now()` を保存します。
-- `comments`: コメント文字列の配列。
+- `authorUid`: 投稿者の匿名認証uid。新規投稿では必須（自分自身のuidと一致が必要）。旧投稿には存在しない。
+- `missIdx`: 任意。「何手目まで打った局面を最初に表示するか」（0〜history未満の整数）。次の手（missIdx+1手目）が「ミスの手」。未指定・欠落なら従来どおり最終局面から表示。
+- `createdAt`: 投稿時刻。新規投稿はサーバー時刻（`serverTimestamp()`）。旧データはクライアントの `Date.now()` の数値。表示・並び替えは両方に対応。
+- `comments`: コメント文字列の配列（後方互換のため残置。 新規コメントも当面はこの配列に追加）。
 - `likes`: いいね数。
 - `helpful`: 参考になった数。
 
@@ -133,27 +144,34 @@ posts/{postId}
 
 公開アプリとして運用する場合は、Firestoreのルールを必ず設定してください。
 
-このリポジトリには、現在のデータ構造に合わせた推奨例として `firestore.rules` を用意しています。Firebaseコンソールの Cloud Firestore Rules に貼り付けて利用してください。
+このリポジトリには、現在のデータ構造と認証方針に合わせた `firestore.rules` を用意しています。Firebaseコンソールの Cloud Firestore Rules に貼り付けて利用してください。
 
-このルール例の方針:
+このルールの方針:
 
+- `posts` 以外は既定で拒否。
 - 投稿の読み取りは全員に許可します。
-- 投稿作成は必要なフィールドと型を満たす場合のみ許可します。
-- 投稿後に変更できるフィールドは `comments`、`likes`、`helpful` のみに制限します。
-- コメント数やリアクション数に上限を設けます。
+- 投稿作成は匿名認証必須。`authorUid` が自分自身のuidと一致すること、`createdAt` がサーバー時刻であること、必要なキーと型・範囲を満たす場合のみ許可します。
+- 投稿後の変更は匿名認証必須で、`comments`、`likes`、`helpful` のみ。コメント数とリアクション数には上限があります。
+- `missIdx` は任意キー。ある場合は `0 <= missIdx < history.length`。
 - 削除は許可しません。
+
+App Check について:
+
+- コード側は `initializeAppCheck`（reCAPTCHA v3）を準備済みです。サイトキーを定数 `RECAPTCHA_SITE_KEY` に設定するまでSDKは初期化されません。
+- `localhost` では App Check のデバッグトークンを利用できます。本番では有効になりません。
+- 運用は「監視のみ」から始め、Firebaseコンソールで確認後に「強制」へ切り替えてください。コードはどちらでも同じで動作します。
 
 注意点:
 
-- 認証なしの掲示板であるため、完全なスパム対策や同一人物判定はできません。
-- `likes` と `helpful` の1人1回制限はアプリ側のlocalStorage依存です。Firestoreルールだけでは厳密に保証できません。
-- 本格運用する場合は Firebase Authentication、App Check、コメントのサブコレクション化、管理者削除機能の追加を検討してください。
+- 匿名認証は誰でも取得できるため、同一人物判定や完全なスパム対策にはなりません。
+- `likes` と `helpful` の「同じ匿名IDにつき1回」制限は、フェーズ3B-2でサーバー側（Firestore ルール＋reactions 記録）でも担保されます。匿名IDはブラウザデータを消すと変わるため、同一人物判定にはなりません。
+- 本格運用する場合は、リアクション記録の取り消し（同一匿名ID内での取消）や管理者削除機能の追加を検討してください。
 
 ## 今後の改善候補
 
-- Firebase Authentication または匿名認証の導入
-- Firebase App Checkの導入
 - コメントを `posts/{postId}/comments/{commentId}` のサブコレクションへ分離
+- ~~リアクションの1人1回制限をサブコレクションで厳密化~~（対応済み：フェーズ3B-2で reactions 記録＋ルール連動により「同じ匿名IDにつき1回」をサーバー側で担保）
+- App Check の強制（コンソール側）
 - 投稿者名、コメント日時、通報、管理者削除機能の追加
 - SGFパーサーの強化（パス、分岐、盤サイズ、コメント対応）
 - 投稿本文・コメントの文字数制限をUI側にも表示
@@ -168,7 +186,7 @@ Firebaseを利用しているため、公開・運用する場合はFirestoreの
 
 ## 開発
 
-ブラウザで `index.html` を開くことでフロントエンドを確認できます。
+ブラウザで `index.html` を開くことでフロントエンドを確認できます。匿名認証を利用するため、Firebaseコンソールで「匿名のプロバイダ」を有効化した状態でテストしてください。
 
 Firestoreを利用する機能については、FirebaseプロジェクトとCloud Firestoreの設定が必要です。
 
